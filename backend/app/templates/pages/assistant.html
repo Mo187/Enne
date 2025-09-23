@@ -1,0 +1,520 @@
+{% extends "base.html" %}
+
+{% block title %}Enne - AI-Assisted CRM{% endblock %}
+{% block page_title %}Assistant{% endblock %}
+
+{% block extra_head %}
+<style>
+    .chat-container {
+        height: calc(100vh - 200px);
+        min-height: 400px;
+        background: var(--background);
+    }
+
+    .chat-header {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: var(--shadow-light);
+    }
+
+    .typing-indicator {
+        display: none;
+    }
+
+    .typing-indicator.active {
+        display: flex;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="h-full flex flex-col chat-container">
+
+    <!-- Chat Messages -->
+    <div class="flex-1 overflow-hidden">
+        <div id="chat-messages" class="h-full overflow-y-auto space-y-4 pr-2">
+            
+            <!-- Welcome Message -->
+            <!-- <div class="chat chat-start">
+                <div class="chat-image avatar">
+                    <div class="w-10 rounded-full bg-primary flex items-center justify-center">
+                        <span class="text-primary-content text-sm">🤖</span>
+                    </div>
+                </div>
+                <div class="chat-bubble message-assistant">
+                    <div class="text-sm font-medium mb-1">Assistant</div>
+                    <div>
+                        👋 Hello! I'm Enne, your AI-powered CRM assistant. I can help you:
+                        <ul class="list-disc list-inside mt-2 space-y-1 text-sm">
+                            <li><strong>Manage contacts:</strong> "Add contact Sarah Johnson from Tech Corp"</li>
+                            <li><strong>Search data:</strong> "Show me all contacts from healthcare companies"</li>
+                            <li><strong>Create organizations:</strong> "Add company Acme Inc in the technology industry"</li>
+                            <li><strong>Export data:</strong> "Export all my contacts to CSV"</li>
+                            <li><strong>Get insights:</strong> "Show me my CRM statistics"</li>
+                        </ul>
+                        <div class="mt-3 text-xs text-base-content/60">
+                            Just type naturally - I'll understand and execute your commands automatically! 
+                        </div>
+                    </div>
+                </div>
+            </div> -->
+
+        </div>
+    </div>
+
+    <!-- Chat Input -->
+    <div class="chat-input-container-modern">
+        <form id="chat-form" class="chat-form-modern">
+            <div class="chat-input-wrapper">
+                <textarea
+                    id="message-input"
+                    name="message"
+                    placeholder="Type your message or command..."
+                    class="chat-input-modern"
+                    autocomplete="off"
+                    required
+                    rows="1"
+                ></textarea>
+                <button type="submit" class="send-button-modern" title="Send message">
+                    <svg class="send-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                    </svg>
+                    <svg class="check-icon hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="chat-input-footer">
+                <span class="typing-indicator-text hidden" id="typing-text">AI is typing...</span>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Message Templates -->
+<template id="user-message-template">
+    <div class="message-container user">
+        <div class="chat-bubble-modern chat-bubble-user">
+            <div class="message-content" id="user-message-content"></div>
+            <div class="message-timestamp">
+                <span class="message-time" id="user-message-time"></span>
+            </div>
+        </div>
+        <div class="avatar-modern avatar-user-enhanced">
+            <span class="avatar-initial" id="user-avatar-initial">U</span>
+        </div>
+    </div>
+</template>
+
+<template id="assistant-message-template">
+    <div class="message-container assistant">
+        <div class="avatar-modern avatar-assistant">
+            <span>🤖</span>
+        </div>
+        <div class="chat-bubble-modern chat-bubble-assistant">
+            <div class="message-meta">
+                <span id="command-badge" class="command-badge hidden">
+                    Command Detected
+                </span>
+                <span id="provider-badge" class="command-badge">
+                    Claude
+                </span>
+            </div>
+            <div class="message-content" id="assistant-message-content"></div>
+            <div id="execution-result" class="execution-result hidden"></div>
+            <div class="message-timestamp">
+                <span class="message-time" id="assistant-message-time"></span>
+            </div>
+        </div>
+    </div>
+</template>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Check authentication before loading assistant page
+document.addEventListener('DOMContentLoaded', function() {
+    const token = localStorage.getItem('access_token');
+    const userData = localStorage.getItem('user_data');
+
+    if (!token || !userData) {
+        // No authentication data, redirect to login
+        window.location.href = '/login';
+        return;
+    }
+
+    // Verify token is still valid by making a test API call
+    fetch('/api/v1/auth/me', {
+        method: 'GET',
+        headers: {
+            'Authorization': 'Bearer ' + token
+        }
+    })
+    .then(response => {
+        if (response.status === 401 || response.status === 403) {
+            // Token is invalid, clear storage and redirect
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user_data');
+            window.location.href = '/login';
+        }
+    })
+    .catch(error => {
+        console.log('Token verification failed, assuming valid');
+    });
+});
+
+// Chat functionality
+let messageHistory = [];
+
+function insertCommand(command) {
+    document.getElementById('message-input').value = command;
+    document.getElementById('message-input').focus();
+}
+
+function showTyping() {
+    // Create dynamic thinking indicator
+    const thinkingIndicator = document.createElement('div');
+    thinkingIndicator.id = 'typing-indicator';
+    thinkingIndicator.className = 'message-container assistant typing-indicator';
+    thinkingIndicator.innerHTML = `
+        <div class="avatar-modern avatar-assistant">
+            <span>🤖</span>
+        </div>
+        <div class="thinking-indicator">
+            <span class="text-sm" style="color: var(--foreground-secondary)">AI is thinking</span>
+            <div class="thinking-dots">
+                <div class="thinking-dot"></div>
+                <div class="thinking-dot"></div>
+                <div class="thinking-dot"></div>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('chat-messages').appendChild(thinkingIndicator);
+    document.getElementById('typing-text').classList.remove('hidden');
+    animateSendButton();
+    scrollToBottom();
+}
+
+function hideTyping() {
+    const thinkingIndicator = document.getElementById('typing-indicator');
+    if (thinkingIndicator) {
+        thinkingIndicator.remove();
+    }
+    document.getElementById('typing-text').classList.add('hidden');
+}
+
+function scrollToBottom() {
+    const chatMessages = document.getElementById('chat-messages');
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function addUserMessage(message) {
+    const template = document.getElementById('user-message-template');
+    const clone = template.content.cloneNode(true);
+
+    // Format message content
+    clone.getElementById('user-message-content').innerHTML = formatMessage(message);
+
+    // Add timestamp
+    clone.getElementById('user-message-time').textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+    // Set user initial from localStorage
+    const userData = localStorage.getItem('user_data');
+    let userInitial = 'U';
+    if (userData) {
+        try {
+            const user = JSON.parse(userData);
+            userInitial = user.name ? user.name.charAt(0).toUpperCase() : 'U';
+        } catch (e) {
+            console.log('Could not parse user data');
+        }
+    }
+    clone.getElementById('user-avatar-initial').textContent = userInitial;
+
+    const messageElement = clone.querySelector('.message-container');
+    document.getElementById('chat-messages').appendChild(clone);
+
+    scrollToBottom();
+}
+
+function addAssistantMessage(response) {
+    const template = document.getElementById('assistant-message-template');
+    const clone = template.content.cloneNode(true);
+
+    // Set main content with rich formatting
+    clone.getElementById('assistant-message-content').innerHTML = formatMessage(response.response);
+
+    // Add timestamp
+    clone.getElementById('assistant-message-time').textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+    // Set provider badge
+    clone.getElementById('provider-badge').textContent = response.provider || 'AI';
+
+    // Command badge disabled for cleaner UI
+    // if (response.command_detected) {
+    //     const commandBadge = clone.getElementById('command-badge');
+    //     commandBadge.classList.remove('hidden');
+    //     commandBadge.textContent = `${response.command_type} detected`;
+    // }
+
+    // Show execution result if available (but not for clarifications)
+    if (response.execution_result) {
+        const resultDiv = clone.getElementById('execution-result');
+
+        if (response.execution_result.success) {
+            resultDiv.classList.remove('hidden');
+            resultDiv.classList.add('execution-result');
+            resultDiv.classList.remove('execution-error');
+            resultDiv.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <span class="text-green-600">✅</span>
+                    <span class="font-medium">Action Completed:</span>
+                    <span>${response.execution_result.message}</span>
+                </div>
+            `;
+        } else if (response.execution_result.requires_clarification) {
+            // Don't show error for clarifications - let AI handle it naturally
+            resultDiv.classList.add('hidden');
+        } else {
+            // Show real errors
+            resultDiv.classList.remove('hidden');
+            resultDiv.classList.add('execution-error');
+            resultDiv.classList.remove('execution-result');
+            resultDiv.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <span class="text-red-600">❌</span>
+                    <span class="font-medium">Error:</span>
+                    <span>${response.execution_result.error}</span>
+                </div>
+            `;
+        }
+    }
+
+    const messageElement = clone.querySelector('.message-container');
+    document.getElementById('chat-messages').appendChild(clone);
+
+    scrollToBottom();
+}
+
+// Enhanced message formatting with markdown support
+function formatMessage(message) {
+    // Clean up excessive spacing first
+    let cleaned = message
+        // Remove excessive newlines (more than 2 consecutive)
+        .replace(/\n{3,}/g, '\n\n')
+        // Remove trailing spaces from lines
+        .replace(/ +$/gm, '')
+        // Remove leading/trailing whitespace
+        .trim();
+
+    // Split into paragraphs for better handling
+    let paragraphs = cleaned.split(/\n\n+/);
+
+    let formatted = paragraphs
+        .map(paragraph => {
+            // Process each paragraph individually
+            let p = paragraph.trim();
+            if (!p) return '';
+
+            // Apply markdown formatting to the paragraph
+            p = p
+                // Headers
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+
+                // Bold and italic
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+                // Code blocks
+                .replace(/```(\w+)?\n([\s\S]*?)```/g, function(match, lang, code) {
+                    const language = lang || 'text';
+                    return `<pre><div class="code-block-header">
+                        <span>${language}</span>
+                        <button class="copy-code-btn" onclick="copyCode(this)">Copy</button>
+                    </div><code class="language-${language}">${escapeHtml(code.trim())}</code></pre>`;
+                })
+
+                // Inline code
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+
+                // Blockquotes
+                .replace(/^> (.*$)/gim, '<blockquote>$1</blockquote>')
+
+                // Lists
+                .replace(/^\* (.*$)/gim, '<li>$1</li>')
+                .replace(/^- (.*$)/gim, '<li>$1</li>')
+                .replace(/^\d+\. (.*$)/gim, '<li>$1</li>')
+
+                // Links
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+
+                // Single line breaks within paragraphs become spaces (for natural flow)
+                .replace(/\n/g, ' ');
+
+            // Wrap list items in ul tags
+            if (p.includes('<li>')) {
+                p = '<ul>' + p + '</ul>';
+                // Clean up multiple ul tags
+                p = p.replace(/<\/ul><ul>/g, '');
+            }
+
+            return p;
+        })
+        .filter(p => p.length > 0) // Remove empty paragraphs
+        .join('<br><br>'); // Use double break between paragraphs for proper spacing
+
+    return formatted;
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// Copy functionality
+function copyCode(button) {
+    const codeBlock = button.closest('pre').querySelector('code');
+    const text = codeBlock.textContent;
+
+    navigator.clipboard.writeText(text).then(() => {
+        const originalText = button.textContent;
+        button.textContent = 'Copied!';
+        button.style.background = 'var(--primary)';
+        button.style.color = 'var(--primary-foreground)';
+
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.style.background = '';
+            button.style.color = '';
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+    });
+}
+
+
+// Form submission handler
+document.getElementById('chat-form').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const formData = new FormData(event.target);
+    const message = formData.get('message').trim();
+
+    if (!message) return;
+
+    // Add user message immediately
+    addUserMessage(message);
+
+    // Show thinking indicator
+    showTyping();
+
+    // Clear input
+    document.getElementById('message-input').value = '';
+    autoResizeTextarea();
+
+    // Send JSON request to API
+    const jsonData = {
+        message: message,
+        provider: localStorage.getItem('preferred_ai_provider') || 'claude',
+        conversation_history: messageHistory.slice(-5).map(msg => [
+            {role: "user", content: msg.user},
+            {role: "assistant", content: msg.assistant}
+        ]).flat()
+    };
+
+    fetch('/api/v1/chat/message', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || '')
+        },
+        body: JSON.stringify(jsonData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        hideTyping();
+        addAssistantMessage(data);
+        messageHistory.push({
+            user: message,
+            assistant: data.response
+        });
+    })
+    .catch(error => {
+        hideTyping();
+        console.error('Chat error:', error);
+        addAssistantMessage({
+            response: 'Sorry, I encountered an error processing your message. Please try again.',
+            provider: 'Error',
+            command_detected: false
+        });
+    });
+});
+
+// Auto-focus on input
+document.getElementById('message-input').focus();
+
+// Enhanced textarea functionality
+const messageInput = document.getElementById('message-input');
+const sendButton = document.querySelector('.send-button-modern');
+const sendIcon = document.querySelector('.send-icon');
+const checkIcon = document.querySelector('.check-icon');
+
+// Auto-resize textarea
+function autoResizeTextarea() {
+    messageInput.style.height = 'auto';
+    messageInput.style.height = Math.min(messageInput.scrollHeight, 120) + 'px';
+}
+
+// Handle textarea input
+messageInput.addEventListener('input', function() {
+    autoResizeTextarea();
+});
+
+// Handle enter key (send on Enter, new line on Shift+Enter)
+messageInput.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        document.getElementById('chat-form').dispatchEvent(new Event('submit'));
+    }
+});
+
+// Send button animation
+function animateSendButton() {
+    sendButton.classList.add('sending');
+    checkIcon.classList.remove('hidden');
+    sendIcon.classList.add('hidden');
+
+    setTimeout(() => {
+        sendButton.classList.remove('sending');
+        checkIcon.classList.add('hidden');
+        sendIcon.classList.remove('hidden');
+    }, 1500);
+}
+
+
+// Load user's preferred AI provider
+fetch('/api/v1/chat/providers', {
+    headers: {
+        'Authorization': 'Bearer ' + (localStorage.getItem('access_token') || '')
+    }
+})
+.then(response => response.json())
+.then(data => {
+    if (data.user_preference) {
+        document.getElementById('ai-provider').value = data.user_preference;
+    }
+})
+.catch(error => console.log('Could not load AI provider preference'));
+
+// Initialize scroll
+setTimeout(scrollToBottom, 100);
+</script>
+{% endblock %}

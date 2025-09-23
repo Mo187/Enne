@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en" x-data="themeManager()" :data-theme="currentTheme">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Enne AI-Assisted CRM{% endblock %}</title>
+
+    <!-- TailwindCSS CDN for development -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- DaisyUI CDN for components -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+
+    <!-- Modern Theme Styles -->
+    <link href="/static/css/modern.css" rel="stylesheet" type="text/css" />
+
+    <!-- HTMX for dynamic interactions -->
+    <script src="https://unpkg.com/htmx.org@1.9.9"></script>
+
+    <!-- Alpine.js for client-side interactivity -->
+    <script defer src="https://unpkg.com/alpinejs@3.13.3/dist/cdn.min.js"></script>
+
+    <!-- TailwindCSS Configuration -->
+    <script>
+        tailwind.config = {
+            darkMode: ['class', '[data-theme="dark"]'],
+            theme: {
+                extend: {
+                    colors: {
+                        primary: 'var(--primary)',
+                        secondary: 'var(--secondary)',
+                        accent: 'var(--accent)',
+                        background: 'var(--background)',
+                        foreground: 'var(--foreground)',
+                        card: 'var(--card)',
+                        border: 'var(--border)'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Theme Manager Script -->
+    <script>
+        function themeManager() {
+            return {
+                currentTheme: localStorage.getItem('theme') || 'light',
+
+                init() {
+                    this.applyTheme();
+                },
+
+                toggleTheme() {
+                    this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
+                    this.applyTheme();
+                    localStorage.setItem('theme', this.currentTheme);
+                },
+
+                applyTheme() {
+                    document.documentElement.setAttribute('data-theme', this.currentTheme);
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom styles -->
+    <style>
+        [x-cloak] { display: none !important; }
+
+        /* Smooth transitions for theme switching */
+        * {
+            transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+        }
+    </style>
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body style="background-color: var(--background); color: var(--foreground);" x-cloak>
+    <div class="flex h-screen">
+        <!-- Sidebar Navigation -->
+        <aside class="w-64 sidebar-modern" x-data="{ sidebarOpen: true }">
+            <div class="p-4">
+                <!-- Header with Logo and Theme Toggle -->
+                <div class="flex items-center justify-between mb-8">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-8 h-8 rounded-lg flex items-center justify-center text-gradient">
+                            <span class="font-bold text-lg">Enne</span>
+                        </div>
+                        <!-- <span class="text-xl font-bold" style="color: var(--foreground)">Enne</span> -->
+                    </div>
+
+                    <!-- Theme Toggle Button -->
+                    <button @click="toggleTheme()" class="theme-toggle" title="Toggle theme">
+                        <svg x-show="currentTheme === 'light'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+                        </svg>
+                        <svg x-show="currentTheme === 'dark'" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                        </svg>
+                    </button>
+                </div>
+
+                <nav class="space-y-2">
+                    <a href="/" class="nav-link-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z"></path>
+                        </svg>
+                        <span>Dashboard</span>
+                    </a>
+
+                    <a href="/assistant" class="nav-link-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                        </svg>
+                        <span>Assistant</span>
+                    </a>
+
+                    <a href="/contacts" class="nav-link-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"></path>
+                        </svg>
+                        <span>Contacts</span>
+                    </a>
+
+                    <a href="/organizations" class="nav-link-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                        </svg>
+                        <span>Organizations</span>
+                    </a>
+
+                    <a href="/projects" class="nav-link-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
+                        <span>Projects</span>
+                    </a>
+
+                    <a href="/tasks" class="nav-link-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                        </svg>
+                        <span>Tasks</span>
+                    </a>
+
+                    <a href="/calendar" class="nav-link-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                        </svg>
+                        <span>Calendar</span>
+                    </a>
+
+                    <a href="/settings" class="nav-link-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        </svg>
+                        <span>Settings</span>
+                    </a>
+                </nav>
+            </div>
+        </aside>
+
+        <!-- Mobile Sidebar Overlay -->
+        <div id="sidebar-overlay" class="sidebar-overlay" onclick="closeMobileMenu()" style="display: none;"></div>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col overflow-hidden">
+            <!-- Top Navigation Bar -->
+            <header class="px-6 py-4 border-glow" style="background: var(--card); position: relative;">
+                <div class="header-divider" style="position: absolute; bottom: 0; left: 0; right: 0; margin: 0;"></div>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <!-- Mobile Hamburger Menu -->
+                        <button class="hamburger-menu md:hidden" id="mobile-menu-btn" onclick="toggleMobileMenu()">
+                            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                            </svg>
+                        </button>
+                        <h1 class="text-2xl font-semibold">{% block page_title %}Dashboard{% endblock %}</h1>
+                    </div>
+
+                    <div class="flex items-center space-x-4">
+                        <!-- Notifications -->
+                        <div class="dropdown dropdown-end">
+                            <button class="btn btn-ghost btn-circle">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-5 5v-5zM7 17H2l5 5v-5z"></path>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Enhanced User Menu -->
+                        <div class="user-menu-modern" id="user-menu">
+                            <button class="user-menu-trigger" id="user-menu-trigger" type="button">
+                                <div class="user-avatar-header">
+                                    <span class="user-initial-header" id="user-initial">U</span>
+                                </div>
+                                <svg class="menu-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                            </button>
+                            <div class="user-menu-dropdown hidden" id="user-menu-dropdown">
+                                <div class="user-menu-header">
+                                    <div class="user-avatar-large">
+                                        <span class="user-initial-large" id="user-initial-large">U</span>
+                                    </div>
+                                    <div class="user-info">
+                                        <span class="user-name" id="user-name">User</span>
+                                        <span class="user-email" id="user-email">user@example.com</span>
+                                    </div>
+                                </div>
+                                <div class="menu-divider"></div>
+                                <nav class="user-menu-nav">
+                                    <a href="/settings" class="user-menu-item">
+                                        <svg class="menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                        </svg>
+                                        Settings
+                                    </a>
+                                    <button class="user-menu-item" onclick="logout()">
+                                        <svg class="menu-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+                                        </svg>
+                                        Logout
+                                    </button>
+                                </nav>
+                            </div>
+                        </div>
+
+                        <!-- Login/Register Links (shown when not authenticated) -->
+                        <div class="hidden" id="auth-links">
+                            <a href="/login" class="btn btn-ghost">Login</a>
+                            <a href="/register" class="btn btn-primary">Register</a>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Page Content -->
+            <div class="flex-1 overflow-auto p-6">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Global JavaScript -->
+    <script>
+        // Enhanced user menu functionality
+        function initUserMenu() {
+            const userMenuTrigger = document.getElementById('user-menu-trigger');
+            const userMenuDropdown = document.getElementById('user-menu-dropdown');
+
+            if (userMenuTrigger && userMenuDropdown) {
+                userMenuTrigger.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    toggleUserMenu();
+                });
+
+                // Close menu when clicking outside
+                document.addEventListener('click', function(e) {
+                    if (!userMenuDropdown.contains(e.target) && !userMenuTrigger.contains(e.target)) {
+                        closeUserMenu();
+                    }
+                });
+
+                // Close menu on escape key
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'Escape') {
+                        closeUserMenu();
+                    }
+                });
+            }
+        }
+
+        function toggleUserMenu() {
+            const userMenuTrigger = document.getElementById('user-menu-trigger');
+            const userMenuDropdown = document.getElementById('user-menu-dropdown');
+
+            userMenuTrigger.classList.toggle('active');
+
+            if (userMenuDropdown.classList.contains('show')) {
+                closeUserMenu();
+            } else {
+                openUserMenu();
+            }
+        }
+
+        function openUserMenu() {
+            const userMenuDropdown = document.getElementById('user-menu-dropdown');
+            userMenuDropdown.classList.remove('hidden');
+            setTimeout(() => {
+                userMenuDropdown.classList.add('show');
+            }, 10);
+        }
+
+        function closeUserMenu() {
+            const userMenuTrigger = document.getElementById('user-menu-trigger');
+            const userMenuDropdown = document.getElementById('user-menu-dropdown');
+
+            userMenuTrigger.classList.remove('active');
+            userMenuDropdown.classList.remove('show');
+
+            setTimeout(() => {
+                userMenuDropdown.classList.add('hidden');
+            }, 300);
+        }
+
+        // Authentication functions
+        function checkAuthStatus() {
+            const token = localStorage.getItem('access_token');
+            const userData = localStorage.getItem('user_data');
+            const userMenu = document.getElementById('user-menu');
+            const authLinks = document.getElementById('auth-links');
+
+            if (token && userData) {
+                try {
+                    const user = JSON.parse(userData);
+                    userMenu.classList.remove('hidden');
+                    authLinks.classList.add('hidden');
+
+                    // Update all user initials
+                    const userInitials = document.querySelectorAll('#user-initial, #user-initial-large');
+                    userInitials.forEach(el => {
+                        el.textContent = user.name.charAt(0).toUpperCase();
+                    });
+
+                    // Update user name and email
+                    const userNameEl = document.getElementById('user-name');
+                    const userEmailEl = document.getElementById('user-email');
+                    if (userNameEl) userNameEl.textContent = user.name;
+                    if (userEmailEl) userEmailEl.textContent = user.email || 'user@example.com';
+
+                } catch (e) {
+                    // Invalid user data, show login
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('user_data');
+                    showAuthLinks();
+                }
+            } else {
+                showAuthLinks();
+            }
+        }
+
+        function showAuthLinks() {
+            const userMenu = document.getElementById('user-menu');
+            const authLinks = document.getElementById('auth-links');
+            userMenu.classList.add('hidden');
+            authLinks.classList.remove('hidden');
+        }
+
+        function logout() {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user_data');
+            window.location.href = '/login';
+        }
+
+        // Global HTMX configuration
+        document.body.addEventListener('htmx:configRequest', (e) => {
+            // Add Authorization header
+            const token = localStorage.getItem('access_token');
+            if (token) {
+                e.detail.headers['Authorization'] = 'Bearer ' + token;
+            }
+
+            // Add CSRF token if needed
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+            if (csrfToken) {
+                e.detail.headers['X-CSRFToken'] = csrfToken;
+            }
+        });
+
+        // Global error handling
+        document.body.addEventListener('htmx:responseError', (e) => {
+            console.error('HTMX Error:', e.detail);
+
+            // Handle 401 Unauthorized
+            if (e.detail.xhr.status === 401) {
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('user_data');
+                window.location.href = '/login';
+                return;
+            }
+
+            // Show user-friendly error message
+            alert('An error occurred. Please try again.');
+        });
+
+        // Check authentication status on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            checkAuthStatus();
+            initUserMenu();
+        });
+
+        // Mobile menu functionality
+        function toggleMobileMenu() {
+            const sidebar = document.querySelector('.sidebar-modern');
+            const overlay = document.getElementById('sidebar-overlay');
+
+            if (sidebar && overlay) {
+                const isOpen = sidebar.classList.contains('mobile-open');
+
+                if (isOpen) {
+                    // Close menu
+                    sidebar.classList.remove('mobile-open');
+                    overlay.classList.remove('active');
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                    }, 300);
+                } else {
+                    // Open menu
+                    overlay.style.display = 'block';
+                    setTimeout(() => {
+                        sidebar.classList.add('mobile-open');
+                        overlay.classList.add('active');
+                    }, 10);
+                }
+            }
+        }
+
+        // Close mobile menu when clicking overlay
+        function closeMobileMenu() {
+            const sidebar = document.querySelector('.sidebar-modern');
+            const overlay = document.getElementById('sidebar-overlay');
+
+            if (sidebar && overlay) {
+                sidebar.classList.remove('mobile-open');
+                overlay.classList.remove('active');
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                }, 300);
+            }
+        }
+
+        // Close mobile menu on window resize to desktop
+        window.addEventListener('resize', function() {
+            if (window.innerWidth >= 768) {
+                closeMobileMenu();
+            }
+        });
+
+        // Periodically check token validity (every 5 minutes)
+        setInterval(checkAuthStatus, 5 * 60 * 1000);
+    </script>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

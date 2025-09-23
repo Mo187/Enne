@@ -1,0 +1,189 @@
+{% if tasks %}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for task in tasks %}
+    <div class="card bg-base-100 shadow-sm border border-base-300 hover:shadow-md transition-shadow">
+        <div class="card-body p-4">
+            <div class="flex items-start justify-between">
+                <div class="flex-1">
+                    <h3 class="font-semibold text-lg mb-1">{{ task.name }}</h3>
+                    {% if task.project %}
+                    <p class="text-sm text-base-content/70 mb-2">Project: {{ task.project.name }}</p>
+                    {% endif %}
+                </div>
+                <div class="dropdown dropdown-end">
+                    <button tabindex="0" class="btn btn-ghost btn-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01"></path>
+                        </svg>
+                    </button>
+                    <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-36">
+                        <li><button class="edit-task-btn" data-task-id="{{ task.id }}">Edit</button></li>
+                        {% if task.status != 'completed' %}
+                        <li><button class="complete-task-btn" data-task-id="{{ task.id }}">Mark Complete</button></li>
+                        {% endif %}
+                        <li><button class="delete-task-btn text-error" data-task-id="{{ task.id }}" data-task-name="{{ task.name }}">Delete</button></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <!-- Status and Priority -->
+                <div class="flex items-center gap-2">
+                    <span class="badge
+                        {% if task.status == 'completed' %}badge-success
+                        {% elif task.status == 'in_progress' %}badge-warning
+                        {% elif task.status == 'blocked' %}badge-error
+                        {% else %}badge-ghost{% endif %} badge-sm">
+                        {{ task.status.replace('_', ' ').title() }}
+                    </span>
+                    <span class="badge
+                        {% if task.priority == 'urgent' %}badge-error
+                        {% elif task.priority == 'high' %}badge-warning
+                        {% elif task.priority == 'medium' %}badge-info
+                        {% else %}badge-ghost{% endif %} badge-sm">
+                        {{ task.priority.title() }}
+                    </span>
+                </div>
+
+                <!-- Assignee -->
+                {% if task.assignee %}
+                <div class="flex items-center text-sm">
+                    <svg class="w-4 h-4 mr-2 text-base-content/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                    </svg>
+                    <span>{{ task.assignee }}</span>
+                </div>
+                {% endif %}
+
+                <!-- Due date -->
+                {% if task.due_date %}
+                <div class="flex items-center text-sm">
+                    <svg class="w-4 h-4 mr-2 text-base-content/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <span class="{% if task.due_date < now() and task.status != 'completed' %}text-error{% endif %}">
+                        Due {{ task.due_date.strftime('%b %d, %Y') }}
+                    </span>
+                </div>
+                {% endif %}
+
+                <!-- Hours -->
+                {% if task.estimated_hours or task.actual_hours > 0 %}
+                <div class="flex items-center text-sm">
+                    <svg class="w-4 h-4 mr-2 text-base-content/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span>
+                        {% if task.estimated_hours %}{{ task.estimated_hours }}h estimated{% endif %}
+                        {% if task.actual_hours > 0 %}
+                            {% if task.estimated_hours %} / {% endif %}{{ task.actual_hours }}h actual
+                        {% endif %}
+                    </span>
+                </div>
+                {% endif %}
+
+                <!-- Subtasks -->
+                {% if task.subtasks %}
+                <div class="text-sm text-base-content/60">
+                    {{ task.subtasks|length }} subtask{{ 's' if task.subtasks|length != 1 else '' }}
+                    {% set completed_subtasks = task.subtasks|selectattr('status', 'equalto', 'completed')|list|length %}
+                    {% if completed_subtasks > 0 %}
+                        ({{ completed_subtasks }} completed)
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- Description -->
+                {% if task.description %}
+                <div class="text-xs text-base-content/60 mt-2 p-2 bg-base-200 rounded">
+                    {{ task.description[:80] }}{% if task.description|length > 80 %}...{% endif %}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="flex justify-between items-center mt-3 pt-3 border-t border-base-300">
+                <span class="text-xs text-base-content/50">
+                    Created {{ task.created_at.strftime('%b %d, %Y') }}
+                </span>
+                {% if task.status == 'completed' %}
+                <span class="badge badge-success badge-sm">
+                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    Done
+                </span>
+                {% elif task.status == 'blocked' %}
+                <span class="badge badge-error badge-sm">
+                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728"></path>
+                    </svg>
+                    Blocked
+                </span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Pagination -->
+{% if pagination.pages > 1 %}
+<div class="flex justify-center mt-6">
+    <div class="join">
+        {% if pagination.has_prev %}
+            <button class="join-item btn btn-sm"
+                    hx-get="/api/v1/tasks?page={{ pagination.prev_num }}"
+                    hx-target="#tasks-list">
+                « Prev
+            </button>
+        {% endif %}
+
+        {% for page in pagination.iter_pages() %}
+            {% if page %}
+                {% if page != pagination.page %}
+                    <button class="join-item btn btn-sm"
+                            hx-get="/api/v1/tasks?page={{ page }}"
+                            hx-target="#tasks-list">
+                        {{ page }}
+                    </button>
+                {% else %}
+                    <button class="join-item btn btn-sm btn-active">{{ page }}</button>
+                {% endif %}
+            {% else %}
+                <span class="join-item btn btn-sm btn-disabled">...</span>
+            {% endif %}
+        {% endfor %}
+
+        {% if pagination.has_next %}
+            <button class="join-item btn btn-sm"
+                    hx-get="/api/v1/tasks?page={{ pagination.next_num }}"
+                    hx-target="#tasks-list">
+                Next »
+            </button>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% else %}
+<!-- No tasks state -->
+<div class="card bg-base-200 shadow-xl">
+    <div class="card-body text-center py-12">
+        <svg class="w-16 h-16 mx-auto text-base-content/40 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+        </svg>
+        <h3 class="text-xl font-semibold mb-2">No tasks found</h3>
+        <p class="text-base-content/60 mb-4">
+            {% if request.query_params.get('search') %}
+                No tasks match your search criteria. Try adjusting your search terms.
+            {% else %}
+                Start by creating your first task in a project or ask the AI assistant to help you.
+            {% endif %}
+        </p>
+        <div class="space-x-2">
+            <a href="/projects" class="btn btn-primary">Go to Projects</a>
+            <a href="/assistant" class="btn btn-outline">Ask AI Assistant</a>
+        </div>
+    </div>
+</div>
+{% endif %}

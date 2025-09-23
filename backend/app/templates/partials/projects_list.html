@@ -1,0 +1,174 @@
+{% if projects %}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for project in projects %}
+    <div class="card bg-base-100 shadow-sm border border-base-300 hover:shadow-md transition-shadow">
+        <div class="card-body p-4">
+            <div class="flex items-start justify-between">
+                <div class="flex-1">
+                    <h3 class="font-semibold text-lg mb-1">{{ project.name }}</h3>
+                    {% if project.organization %}
+                    <p class="text-sm text-base-content/70 mb-2">{{ project.organization.name }}</p>
+                    {% endif %}
+                </div>
+                <div class="dropdown dropdown-end">
+                    <button tabindex="0" class="btn btn-ghost btn-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01"></path>
+                        </svg>
+                    </button>
+                    <ul tabindex="0" class="dropdown-content menu p-2 shadow bg-base-100 rounded-box w-32">
+                        <li><button class="edit-project-btn" data-project-id="{{ project.id }}">Edit</button></li>
+                        <li><button class="view-project-btn" data-project-id="{{ project.id }}">View Tasks</button></li>
+                        <li><button class="delete-project-btn text-error" data-project-id="{{ project.id }}" data-project-name="{{ project.name }}">Delete</button></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <!-- Status and Priority -->
+                <div class="flex items-center gap-2">
+                    <span class="badge
+                        {% if project.status == 'completed' %}badge-success
+                        {% elif project.status == 'in_progress' %}badge-warning
+                        {% elif project.status == 'on_hold' %}badge-error
+                        {% else %}badge-ghost{% endif %} badge-sm">
+                        {{ project.status.replace('_', ' ').title() }}
+                    </span>
+                    <span class="badge
+                        {% if project.priority == 'urgent' %}badge-error
+                        {% elif project.priority == 'high' %}badge-warning
+                        {% elif project.priority == 'medium' %}badge-info
+                        {% else %}badge-ghost{% endif %} badge-sm">
+                        {{ project.priority.title() }}
+                    </span>
+                </div>
+
+                <!-- Progress bar -->
+                {% if project.progress_percentage > 0 %}
+                <div class="flex items-center text-sm">
+                    <span class="mr-2">Progress:</span>
+                    <progress class="progress progress-primary w-full" value="{{ project.progress_percentage }}" max="100"></progress>
+                    <span class="ml-2 text-xs">{{ project.progress_percentage }}%</span>
+                </div>
+                {% endif %}
+
+                <!-- Task count -->
+                {% if project.tasks %}
+                <div class="text-sm text-base-content/60">
+                    {{ project.tasks|length }} task{{ 's' if project.tasks|length != 1 else '' }}
+                    {% set completed_count = project.tasks|selectattr('status', 'equalto', 'completed')|list|length %}
+                    {% if completed_count > 0 %}
+                        ({{ completed_count }} completed)
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- Due date -->
+                {% if project.due_date %}
+                <div class="flex items-center text-sm">
+                    <svg class="w-4 h-4 mr-2 text-base-content/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                    </svg>
+                    <span class="{% if project.due_date < now() and project.status != 'completed' %}text-error{% endif %}">
+                        Due {{ project.due_date.strftime('%b %d, %Y') }}
+                    </span>
+                </div>
+                {% endif %}
+
+                <!-- Assignees -->
+                {% if project.assignees %}
+                <div class="flex items-center text-sm">
+                    <svg class="w-4 h-4 mr-2 text-base-content/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"></path>
+                    </svg>
+                    <span>{{ project.assignees|map(attribute='name')|join(', ') }}</span>
+                </div>
+                {% endif %}
+
+                <!-- Description -->
+                {% if project.description %}
+                <div class="text-xs text-base-content/60 mt-2 p-2 bg-base-200 rounded">
+                    {{ project.description[:100] }}{% if project.description|length > 100 %}...{% endif %}
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="flex justify-between items-center mt-3 pt-3 border-t border-base-300">
+                <span class="text-xs text-base-content/50">
+                    Created {{ project.created_at.strftime('%b %d, %Y') }}
+                </span>
+                {% if project.status == 'completed' %}
+                <span class="badge badge-success badge-sm">
+                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    Completed
+                </span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Pagination -->
+{% if pagination.pages > 1 %}
+<div class="flex justify-center mt-6">
+    <div class="join">
+        {% if pagination.has_prev %}
+            <button class="join-item btn btn-sm"
+                    hx-get="/api/v1/projects?page={{ pagination.prev_num }}"
+                    hx-target="#projects-list">
+                « Prev
+            </button>
+        {% endif %}
+
+        {% for page in pagination.iter_pages() %}
+            {% if page %}
+                {% if page != pagination.page %}
+                    <button class="join-item btn btn-sm"
+                            hx-get="/api/v1/projects?page={{ page }}"
+                            hx-target="#projects-list">
+                        {{ page }}
+                    </button>
+                {% else %}
+                    <button class="join-item btn btn-sm btn-active">{{ page }}</button>
+                {% endif %}
+            {% else %}
+                <span class="join-item btn btn-sm btn-disabled">...</span>
+            {% endif %}
+        {% endfor %}
+
+        {% if pagination.has_next %}
+            <button class="join-item btn btn-sm"
+                    hx-get="/api/v1/projects?page={{ pagination.next_num }}"
+                    hx-target="#projects-list">
+                Next »
+            </button>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% else %}
+<!-- No projects state -->
+<div class="card bg-base-200 shadow-xl">
+    <div class="card-body text-center py-12">
+        <svg class="w-16 h-16 mx-auto text-base-content/40 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path>
+        </svg>
+        <h3 class="text-xl font-semibold mb-2">No projects found</h3>
+        <p class="text-base-content/60 mb-4">
+            {% if request.query_params.get('search') %}
+                No projects match your search criteria. Try adjusting your search terms.
+            {% else %}
+                Start by creating your first project or ask the AI assistant to help you.
+            {% endif %}
+        </p>
+        <div class="space-x-2">
+            <button class="btn btn-primary" onclick="document.getElementById('add-project-modal').showModal()">Create Project</button>
+            <a href="/assistant" class="btn btn-outline">Ask AI Assistant</a>
+        </div>
+    </div>
+</div>
+{% endif %}

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - AI-Assisted CRM</title>
+
+    <!-- TailwindCSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- DaisyUI CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+
+    <!-- HTMX -->
+    <script src="https://unpkg.com/htmx.org@1.9.9"></script>
+</head>
+<body class="bg-base-200 min-h-screen flex items-center justify-center py-8">
+    <!-- Registration Container -->
+    <div class="card w-full max-w-lg bg-base-100 shadow-xl">
+        <div class="card-body">
+            <!-- Logo and Title -->
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
+                    <span class="text-primary-content font-bold text-2xl">C</span>
+                </div>
+                <h1 class="text-3xl font-bold">Join Enne AI CRM</h1>
+                <p class="text-base-content/70">Create your account to get started</p>
+            </div>
+
+            <!-- Registration Form -->
+            <form id="register-form" class="space-y-4">
+                <!-- Error Message -->
+                <div id="error-message" class="alert alert-error hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span id="error-text">Registration failed</span>
+                </div>
+
+                <!-- Success Message -->
+                <div id="success-message" class="alert alert-success hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span id="success-text">Account created successfully!</span>
+                </div>
+
+                <!-- Name Field -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Full Name</span>
+                    </label>
+                    <input
+                        type="text"
+                        id="name"
+                        name="name"
+                        placeholder="Enter your full name"
+                        class="input input-bordered w-full"
+                        required
+                        autocomplete="name"
+                    >
+                </div>
+
+                <!-- Email Field -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Email Address</span>
+                    </label>
+                    <input
+                        type="email"
+                        id="email"
+                        name="email"
+                        placeholder="Enter your email"
+                        class="input input-bordered w-full"
+                        required
+                        autocomplete="email"
+                    >
+                </div>
+
+                <!-- Company Field (Optional) -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Company <span class="text-base-content/50">(optional)</span></span>
+                    </label>
+                    <input
+                        type="text"
+                        id="company"
+                        name="company"
+                        placeholder="Your company name"
+                        class="input input-bordered w-full"
+                        autocomplete="organization"
+                    >
+                </div>
+
+                <!-- Job Title Field (Optional) -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Job Title <span class="text-base-content/50">(optional)</span></span>
+                    </label>
+                    <input
+                        type="text"
+                        id="job_title"
+                        name="job_title"
+                        placeholder="Your job title"
+                        class="input input-bordered w-full"
+                        autocomplete="organization-title"
+                    >
+                </div>
+
+                <!-- Phone Field (Optional) -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Phone Number <span class="text-base-content/50">(optional)</span></span>
+                    </label>
+                    <input
+                        type="tel"
+                        id="phone"
+                        name="phone"
+                        placeholder="Your phone number"
+                        class="input input-bordered w-full"
+                        autocomplete="tel"
+                    >
+                </div>
+
+                <!-- Password Field -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Password</span>
+                    </label>
+                    <input
+                        type="password"
+                        id="password"
+                        name="password"
+                        placeholder="Create a password"
+                        class="input input-bordered w-full"
+                        required
+                        autocomplete="new-password"
+                        minlength="8"
+                    >
+                    <label class="label">
+                        <span class="label-text-alt text-base-content/60">At least 8 characters</span>
+                    </label>
+                </div>
+
+                <!-- Confirm Password Field -->
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Confirm Password</span>
+                    </label>
+                    <input
+                        type="password"
+                        id="confirm_password"
+                        name="confirm_password"
+                        placeholder="Confirm your password"
+                        class="input input-bordered w-full"
+                        required
+                        autocomplete="new-password"
+                    >
+                </div>
+
+                <!-- Terms Checkbox -->
+                <div class="form-control">
+                    <label class="label cursor-pointer justify-start">
+                        <input type="checkbox" class="checkbox checkbox-primary mr-3" id="terms" required>
+                        <span class="label-text">I agree to the <a href="#" class="link link-primary">Terms of Service</a> and <a href="#" class="link link-primary">Privacy Policy</a></span>
+                    </label>
+                </div>
+
+                <!-- Register Button -->
+                <button
+                    type="submit"
+                    class="btn btn-primary w-full"
+                    id="register-btn"
+                >
+                    <span class="loading loading-spinner loading-sm hidden" id="register-spinner"></span>
+                    <span id="register-text">Create Account</span>
+                </button>
+            </form>
+
+            <!-- Divider -->
+            <div class="divider">Already have an account?</div>
+
+            <!-- Login Link -->
+            <div class="text-center">
+                <a href="/login" class="btn btn-outline btn-secondary w-full">
+                    Sign In
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Handle registration form submission
+        document.getElementById('register-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const submitBtn = document.getElementById('register-btn');
+            const spinner = document.getElementById('register-spinner');
+            const registerText = document.getElementById('register-text');
+            const errorMessage = document.getElementById('error-message');
+            const successMessage = document.getElementById('success-message');
+            const errorText = document.getElementById('error-text');
+            const successText = document.getElementById('success-text');
+
+            // Hide previous messages
+            errorMessage.classList.add('hidden');
+            successMessage.classList.add('hidden');
+
+            // Validate passwords match
+            const password = document.getElementById('password').value;
+            const confirmPassword = document.getElementById('confirm_password').value;
+
+            if (password !== confirmPassword) {
+                errorText.textContent = 'Passwords do not match';
+                errorMessage.classList.remove('hidden');
+                return;
+            }
+
+            // Show loading state
+            submitBtn.disabled = true;
+            spinner.classList.remove('hidden');
+            registerText.textContent = 'Creating account...';
+
+            // Prepare data
+            const registrationData = {
+                name: document.getElementById('name').value.trim(),
+                email: document.getElementById('email').value.trim(),
+                password: password,
+                company: document.getElementById('company').value.trim() || null,
+                job_title: document.getElementById('job_title').value.trim() || null,
+                phone: document.getElementById('phone').value.trim() || null
+            };
+
+            try {
+                const response = await fetch('/api/v1/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(registrationData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Store token and user data
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('user_data', JSON.stringify(data.user));
+
+                    // Show success message
+                    successText.textContent = 'Account created successfully! Redirecting to dashboard...';
+                    successMessage.classList.remove('hidden');
+                    registerText.textContent = 'Success!';
+
+                    // Redirect after 2 seconds
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 2000);
+                } else {
+                    // Show error
+                    errorText.textContent = data.detail || 'Registration failed. Please try again.';
+                    errorMessage.classList.remove('hidden');
+
+                    // Reset button
+                    submitBtn.disabled = false;
+                    spinner.classList.add('hidden');
+                    registerText.textContent = 'Create Account';
+                }
+            } catch (error) {
+                console.error('Registration error:', error);
+                errorText.textContent = 'Network error. Please check your connection.';
+                errorMessage.classList.remove('hidden');
+
+                // Reset button
+                submitBtn.disabled = false;
+                spinner.classList.add('hidden');
+                registerText.textContent = 'Create Account';
+            }
+        });
+
+        // Real-time password confirmation validation
+        document.getElementById('confirm_password').addEventListener('input', function() {
+            const password = document.getElementById('password').value;
+            const confirmPassword = this.value;
+
+            if (confirmPassword && password !== confirmPassword) {
+                this.classList.add('input-error');
+                this.classList.remove('input-success');
+            } else if (confirmPassword && password === confirmPassword) {
+                this.classList.add('input-success');
+                this.classList.remove('input-error');
+            } else {
+                this.classList.remove('input-error', 'input-success');
+            }
+        });
+
+        // Check if already logged in
+        const token = localStorage.getItem('access_token');
+        if (token) {
+            window.location.href = '/';
+        }
+
+        // Focus on name field
+        document.getElementById('name').focus();
+    </script>
+</body>
+</html>

@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+
+{% block title %}Projects - AI-Assisted CRM{% endblock %}
+{% block page_title %}Projects{% endblock %}
+
+{% block js %}
+<script>
+// Check authentication before loading page
+document.addEventListener('DOMContentLoaded', function() {
+    const token = localStorage.getItem('access_token');
+    const userData = localStorage.getItem('user_data');
+    if (!token || !userData) {
+        window.location.href = '/login';
+        return;
+    }
+    fetch('/api/v1/auth/me', {
+        method: 'GET',
+        headers: {'Authorization': 'Bearer ' + token}
+    }).then(response => {
+        if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user_data');
+            window.location.href = '/login';
+        }
+    }).catch(error => console.log('Token verification failed, assuming valid'));
+
+    // Load filter options
+    loadProjectFilters();
+});
+
+// Configure HTMX to include auth headers
+document.body.addEventListener('htmx:configRequest', function(evt) {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+        evt.detail.headers['Authorization'] = 'Bearer ' + token;
+    }
+});
+
+// Handle HTMX responses
+document.body.addEventListener('htmx:responseError', function(evt) {
+    if (evt.detail.xhr.status === 401 || evt.detail.xhr.status === 403) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user_data');
+        window.location.href = '/login';
+    }
+});
+
+// Handle successful project list load
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'projects-list') {
+        addProjectActionListeners();
+    }
+});
+
+// Add project form submission
+document.getElementById('add-project-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const formData = new FormData(e.target);
+    const projectData = Object.fromEntries(formData.entries());
+
+    // Convert date fields
+    if (projectData.start_date) {
+        projectData.start_date = new Date(projectData.start_date).toISOString();
+    }
+    if (projectData.due_date) {
+        projectData.due_date = new Date(projectData.due_date).toISOString();
+    }
+
+    // Convert tags to array
+    if (projectData.tags) {
+        projectData.tags = projectData.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+    }
+
+    try {
+        const response = await fetch('/api/v1/projects', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + localStorage.getItem('access_token')
+            },
+            body: JSON.stringify(projectData)
+        });
+
+        if (response.ok) {
+            document.getElementById('add-project-modal').close();
+            e.target.reset();
+            htmx.trigger('#projects-list', 'htmx:load');
+            showToast('Project created successfully!', 'success');
+        } else {
+            const error = await response.json();
+            showToast(error.detail || 'Failed to create project', 'error');
+        }
+    } catch (error) {
+        console.error('Error creating project:', error);
+        showToast('Network error occurred', 'error');
+    }
+});
+
+// Load filter options
+async function loadProjectFilters() {
+    try {
+        // Load organizations for filter
+        const orgResponse = await fetch('/api/v1/organizations?limit=1000', {
+            headers: {'Authorization': 'Bearer ' + localStorage.getItem('access_token')}
+        });
+
+        if (orgResponse.ok) {
+            const orgData = await orgResponse.json();
+            const select = document.getElementById('organization-filter');
+            orgData.organizations.forEach(org => {
+                const option = document.createElement('option');
+                option.value = org.id;
+                option.textContent = org.name;
+                select.appendChild(option);
+            });
+        }
+
+        // Load organization options for project creation
+        const createSelect = document.getElementById('project-organization');
+        if (orgResponse.ok) {
+            const orgData = await orgResponse.json();
+            orgData.organizations.forEach(org => {
+                const option = document.createElement('option');
+                option.value = org.id;
+                option.textContent = org.name;
+                createSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading filters:', error);
+    }
+}
+
+// Add action listeners to project cards
+function addProjectActionListeners() {
+    // Edit project buttons
+    document.querySelectorAll('.edit-project-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const projectId = this.dataset.projectId;
+            editProject(projectId);
+        });
+    });
+
+    // View project tasks buttons
+    document.querySelectorAll('.view-project-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const projectId = this.dataset.projectId;
+            viewProjectTasks(projectId);
+        });
+    });
+
+    // Delete project buttons
+    document.querySelectorAll('.delete-project-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const projectId = this.dataset.projectId;
+            const projectName = this.dataset.projectName;
+            deleteProject(projectId, projectName);
+        });
+    });
+}
+
+// Export projects function
+async function exportProjects() {
+    try {
+        const response = await fetch('/api/v1/projects/export/csv', {
+            headers: {'Authorization': 'Bearer ' + localStorage.getItem('access_token')}
+        });
+
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'projects.csv';
+            a.click();
+            window.URL.revokeObjectURL(url);
+            showToast('Projects exported successfully!', 'success');
+        } else {
+            showToast('Failed to export projects', 'error');
+        }
+    } catch (error) {
+        console.error('Export error:', error);
+        showToast('Export failed', 'error');
+    }
+}
+
+// Edit project function (placeholder)
+function editProject(projectId) {
+    showToast('Edit functionality coming soon!', 'info');
+}
+
+// View project tasks function
+function viewProjectTasks(projectId) {
+    window.location.href = `/projects/${projectId}/tasks`;
+}
+
+// Delete project function
+async function deleteProject(projectId, projectName) {
+    if (confirm(`Are you sure you want to delete "${projectName}"? This will also delete all associated tasks.`)) {
+        try {
+            const response = await fetch(`/api/v1/projects/${projectId}`, {
+                method: 'DELETE',
+                headers: {'Authorization': 'Bearer ' + localStorage.getItem('access_token')}
+            });
+
+            if (response.ok) {
+                htmx.trigger('#projects-list', 'htmx:load');
+                showToast('Project deleted successfully!', 'success');
+            } else {
+                showToast('Failed to delete project', 'error');
+            }
+        } catch (error) {
+            console.error('Delete error:', error);
+            showToast('Delete failed', 'error');
+        }
+    }
+}
+
+// Toast notification function
+function showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type} fixed top-4 right-4 w-auto z-50 shadow-lg`;
+    toast.innerHTML = `<span>${message}</span>`;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
+}
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
+        <!-- <div>
+            <h1 class="text-3xl font-bold" style="color: var(--foreground)">Projects</h1>
+            <p style="color: var(--foreground-secondary)">Manage your projects and track progress</p>
+        </div> -->
+        <button class="btn-modern" onclick="document.getElementById('add-project-modal').showModal()">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+            </svg>
+            Create Project
+        </button>
+    </div>
+
+    <!-- Search and Filter -->
+    <div class="card-modern p-6 mb-6">
+            <div class="flex flex-col md:flex-row gap-2">
+                <div class="flex-1">
+                    <input
+                        type="text"
+                        name="search"
+                        placeholder="Search projects by name or description..."
+                        class="input input-bordered w-full"
+                        id="search-projects"
+                        hx-get="/api/v1/projects"
+                        hx-trigger="keyup changed delay:300ms"
+                        hx-target="#projects-list"
+                        hx-include="[name='status-filter'], [name='priority-filter'], [name='organization-filter']"
+                    >
+                </div>
+                <select name="status-filter" class="select select-bordered" id="status-filter"
+                        hx-get="/api/v1/projects"
+                        hx-trigger="change"
+                        hx-target="#projects-list"
+                        hx-include="#search-projects, [name='priority-filter'], [name='organization-filter']">
+                    <option value="">All Status</option>
+                    <option value="planned">Planned</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="completed">Completed</option>
+                    <option value="on_hold">On Hold</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+                <select name="priority-filter" class="select select-bordered" id="priority-filter"
+                        hx-get="/api/v1/projects"
+                        hx-trigger="change"
+                        hx-target="#projects-list"
+                        hx-include="#search-projects, [name='status-filter'], [name='organization-filter']">
+                    <option value="">All Priority</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                </select>
+                <select name="organization-filter" class="select select-bordered" id="organization-filter"
+                        hx-get="/api/v1/projects"
+                        hx-trigger="change"
+                        hx-target="#projects-list"
+                        hx-include="#search-projects, [name='status-filter'], [name='priority-filter']">
+                    <option value="">All Organizations</option>
+                </select>
+                <button class="btn btn-outline" onclick="exportProjects()">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    Export CSV
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Projects List -->
+    <div id="projects-list"
+         hx-get="/api/v1/projects"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        <!-- Loading placeholder -->
+        <div class="card bg-base-200 shadow-xl">
+            <div class="card-body text-center py-10">
+                <span class="loading loading-spinner loading-lg"></span>
+                <p class="mt-6">Loading projects...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Project Modal -->
+    <dialog id="add-project-modal" class="modal">
+        <div class="modal-box w-11/12 max-w-3xl">
+            <h3 class="font-bold text-lg mb-4">Create New Project</h3>
+
+            <form id="add-project-form" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Project Name *</span>
+                        </label>
+                        <input type="text" name="name" class="input input-bordered" required>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Organization</span>
+                        </label>
+                        <select name="organization_id" class="select select-bordered" id="project-organization">
+                            <option value="">Select Organization</option>
+                        </select>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Status</span>
+                        </label>
+                        <select name="status" class="select select-bordered">
+                            <option value="planned">Planned</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="on_hold">On Hold</option>
+                        </select>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Priority</span>
+                        </label>
+                        <select name="priority" class="select select-bordered">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                            <option value="urgent">Urgent</option>
+                        </select>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Start Date</span>
+                        </label>
+                        <input type="date" name="start_date" class="input input-bordered">
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Due Date</span>
+                        </label>
+                        <input type="date" name="due_date" class="input input-bordered">
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Estimated Hours</span>
+                        </label>
+                        <input type="number" name="estimated_hours" class="input input-bordered" min="0">
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text">Budget</span>
+                        </label>
+                        <input type="text" name="budget" class="input input-bordered" placeholder="e.g., $10,000">
+                    </div>
+                </div>
+
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Description</span>
+                    </label>
+                    <textarea name="description" class="textarea textarea-bordered" rows="3"></textarea>
+                </div>
+
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Tags</span>
+                    </label>
+                    <input type="text" name="tags" class="input input-bordered" placeholder="tag1, tag2, tag3">
+                    <label class="label">
+                        <span class="label-text-alt">Separate tags with commas</span>
+                    </label>
+                </div>
+
+                <div class="form-control">
+                    <label class="label">
+                        <span class="label-text">Notes</span>
+                    </label>
+                    <textarea name="notes" class="textarea textarea-bordered" rows="2"></textarea>
+                </div>
+
+                <div class="modal-action">
+                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('add-project-modal').close()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Project</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
+</div>
+{% endblock %}

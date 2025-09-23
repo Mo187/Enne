@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - AI-Assisted CRM{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block extra_js %}
+<script>
+// Check authentication before loading page
+document.addEventListener('DOMContentLoaded', function() {
+    const token = localStorage.getItem('access_token');
+    const userData = localStorage.getItem('user_data');
+    if (!token || !userData) {
+        window.location.href = '/login';
+        return;
+    }
+    fetch('/api/v1/auth/me', {
+        method: 'GET',
+        headers: {'Authorization': 'Bearer ' + token}
+    }).then(response => {
+        if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user_data');
+            window.location.href = '/login';
+        }
+    }).catch(error => console.log('Token verification failed, assuming valid'));
+});
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div>
+        <!-- <h1 class="text-3xl font-bold">Settings</h1> -->
+        <p class="text-base-content/70">Manage your account and preferences</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Profile Settings -->
+        <div class="card bg-base-200 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title">Profile Settings</h2>
+                <p class="text-base-content/70">Update your personal information</p>
+                <div class="mt-4">
+                    <button class="btn btn-primary">Edit Profile</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Integrations -->
+        <div class="card bg-base-200 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title">Integrations</h2>
+                <p class="text-base-content/70">Connect external services</p>
+                <div class="mt-4">
+                    <button class="btn btn-outline">Manage Integrations</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Settings -->
+        <div class="card bg-base-200 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title">AI Assistant</h2>
+                <p class="text-base-content/70">Configure AI preferences and provider settings</p>
+
+                <!-- AI Provider Selection -->
+                <div class="mt-4 space-y-4">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text font-medium">AI Provider</span>
+                        </label>
+                        <select
+                            id="ai-provider-settings"
+                            class="select select-bordered w-full max-w-xs"
+                            hx-post="/api/v1/chat/provider"
+                            hx-trigger="change"
+                            hx-include="this"
+                            hx-swap="none">
+                            
+                            <option value="claude">Claude (Anthropic)</option>
+                            <option value="openai">GPT (OpenAI)</option>
+                            <option value="gemini">Gemini (Google)</option>
+                        </select>
+                        <label class="label">
+                            <span class="label-text-alt">Choose your preferred AI model for the assistant</span>
+                        </label>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="mt-4">
+                        <button class="btn btn-outline">Advanced AI Settings</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security -->
+        <div class="card bg-base-200 shadow-xl">
+            <div class="card-body">
+                <h2 class="card-title">Security</h2>
+                <p class="text-base-content/70">Password and security settings</p>
+                <div class="mt-4">
+                    <button class="btn btn-outline">Security Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

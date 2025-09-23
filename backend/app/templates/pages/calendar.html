@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Calendar - AI-Assisted CRM{% endblock %}
+{% block page_title %}Calendar{% endblock %}
+
+{% block extra_js %}
+<script>
+// Check authentication before loading page
+document.addEventListener('DOMContentLoaded', function() {
+    const token = localStorage.getItem('access_token');
+    const userData = localStorage.getItem('user_data');
+    if (!token || !userData) {
+        window.location.href = '/login';
+        return;
+    }
+    fetch('/api/v1/auth/me', {
+        method: 'GET',
+        headers: {'Authorization': 'Bearer ' + token}
+    }).then(response => {
+        if (response.status === 401 || response.status === 403) {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('user_data');
+            window.location.href = '/login';
+        }
+    }).catch(error => console.log('Token verification failed, assuming valid'));
+});
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex items-center justify-between">
+        <!-- <div>
+            <h1 class="text-3xl font-bold">Calendar</h1>
+            <p class="text-base-content/70">View your schedule and events</p>
+        </div> -->
+        <button class="btn btn-primary">Add Event</button>
+    </div>
+    <div class="card bg-base-200 shadow-xl">
+        <div class="card-body text-center py-12">
+            <svg class="w-16 h-16 mx-auto text-base-content/40 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            <h3 class="text-xl font-semibold mb-2">Calendar coming soon</h3>
+            <p class="text-base-content/60 mb-4">Calendar integration with Outlook and Google will be available soon.</p>
+            <div class="space-x-2">
+                <a href="/assistant" class="btn btn-outline">Ask Assistant</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

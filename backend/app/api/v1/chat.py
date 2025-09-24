@@ -17,6 +17,8 @@ from ...models.task import Task
 from ..dependencies import get_current_active_user
 from ...services.ai_service import ai_service
 from ...services.llm_command_parser import llm_command_parser
+from ...services.tool_interface import tool_registry
+from ...integrations.mcp_client import get_mcp_client
 
 logger = structlog.get_logger()
 
@@ -1026,6 +1028,77 @@ async def execute_api_action(
                     "error": f"Unknown clarification type: {clarification_type}"
                 }
 
+        elif method == "MCP_TOOL":
+            # Handle MCP tool execution
+            tool_name = action.get("tool_name")
+            parameters = action.get("parameters", {})
+
+            if not tool_name:
+                return {
+                    "success": False,
+                    "error": "MCP tool name is required"
+                }
+
+            # Check if it's a Microsoft 365 MCP tool
+            if tool_name.startswith(("outlook_", "sharepoint_", "onedrive_", "teams_", "authenticate", "extract_document")):
+                try:
+                    # Execute via tool registry (using our MCP adapter)
+                    tool_result = await tool_registry.execute_tool(
+                        tool_name=tool_name,
+                        parameters=parameters,
+                        user_context={
+                            "user": user,
+                            "user_id": user.id,
+                            "db": db
+                        }
+                    )
+
+                    # Convert ToolResult to API action result format
+                    result = {
+                        "success": tool_result.success,
+                        "message": tool_result.message or f"Executed {tool_name}",
+                    }
+
+                    if tool_result.data is not None:
+                        result["result"] = tool_result.data
+
+                    if tool_result.total_count is not None:
+                        result["total_count"] = tool_result.total_count
+
+                    if tool_result.error:
+                        result["error"] = tool_result.error
+
+                    if tool_result.requires_clarification:
+                        result["requires_clarification"] = True
+                        result["clarification_type"] = tool_result.clarification_type
+                        result["clarification_data"] = tool_result.clarification_data
+
+                    logger.info(
+                        "MCP tool executed via registry",
+                        tool_name=tool_name,
+                        success=tool_result.success,
+                        user_id=user.id
+                    )
+
+                    return result
+
+                except Exception as e:
+                    logger.error(
+                        "MCP tool execution failed",
+                        tool_name=tool_name,
+                        error=str(e),
+                        user_id=user.id
+                    )
+                    return {
+                        "success": False,
+                        "error": f"Failed to execute Microsoft 365 tool: {str(e)}"
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unknown MCP tool: {tool_name}"
+                }
+
         else:
             return {
                 "success": False,
@@ -1065,6 +1138,7 @@ async def send_chat_message(
 
         # Build user context for AI
         user_context = {
+            "user": current_user,  # Include full user object for integration checking
             "name": current_user.name,
             "email": current_user.email,
             "company": current_user.company,

@@ -28,8 +28,16 @@ class Settings(BaseSettings):
     # OAuth Credentials
     microsoft_client_id: Optional[str] = None
     microsoft_client_secret: Optional[str] = None
+    microsoft_tenant_id: Optional[str] = None
+    microsoft_redirect_uri: Optional[str] = None
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
+
+    # MCP Integration
+    mcp_microsoft365_url: str = "http://host.docker.internal:8001"
+    mcp_timeout_seconds: int = 30
+    mcp_retry_attempts: int = 3
+    mcp_connection_pool_size: int = 10
 
     # External URLs
     frontend_url: str = "http://localhost:8000"

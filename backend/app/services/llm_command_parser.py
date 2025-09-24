@@ -44,7 +44,28 @@ class LLMCommandParser:
             "get_stats",
             "help",
             "unknown",
-            "clarification_response"
+            "clarification_response",
+            # Microsoft 365 MCP Integration
+            "send_email",
+            "search_emails",
+            "read_email",
+            "create_draft",
+            "list_folders",
+            "get_calendar_events",
+            "create_meeting",
+            "schedule_meeting",
+            "join_meeting",
+            "list_sharepoint_sites",
+            "search_sharepoint_documents",
+            "upload_sharepoint_document",
+            "share_document",
+            "list_onedrive_files",
+            "upload_onedrive_file",
+            "list_teams",
+            "list_team_files",
+            "extract_document_content",
+            "connect_microsoft365",
+            "authenticate_microsoft365"
         ]
 
         # Cache key for prompt caching
@@ -134,6 +155,26 @@ Available intents:
 - get_stats: User wants statistics/analytics
 - help: User needs help/instructions
 - unknown: Intent cannot be determined
+- send_email: User wants to send an email
+- search_emails: User wants to find specific emails
+- read_email: User wants to read a specific email
+- create_draft: User wants to create an email draft
+- list_folders: User wants to see email folders
+- get_calendar_events: User wants to see calendar events
+- create_meeting: User wants to create/schedule a meeting
+- schedule_meeting: User wants to schedule a meeting (alias for create_meeting)
+- join_meeting: User wants to join a meeting
+- list_sharepoint_sites: User wants to see SharePoint sites
+- search_sharepoint_documents: User wants to find SharePoint documents
+- upload_sharepoint_document: User wants to upload a file to SharePoint
+- share_document: User wants to share a document
+- list_onedrive_files: User wants to see OneDrive files
+- upload_onedrive_file: User wants to upload a file to OneDrive
+- list_teams: User wants to see Microsoft Teams
+- list_team_files: User wants to see files in Teams channels
+- extract_document_content: User wants to extract text from a document
+- connect_microsoft365: User wants to connect Microsoft 365 account
+- authenticate_microsoft365: User wants to authenticate with Microsoft 365
 
 CRITICAL: Distinguish between list and search intents:
 - list_* : User wants ALL items or a count of ALL items (no specific criteria)
@@ -169,6 +210,25 @@ For ENTITIES, extract these fields when relevant:
 - notes: Additional notes
 - organization_id: Organization associated with project
 - project_id: Project associated with task
+- email_to: Email recipient address
+- email_cc: Email CC recipients
+- email_bcc: Email BCC recipients
+- email_subject: Email subject line
+- email_body: Email message content
+- email_folder: Email folder name (inbox, sent, etc.)
+- meeting_subject: Meeting title/subject
+- meeting_start: Meeting start time
+- meeting_end: Meeting end time
+- meeting_attendees: Meeting participants
+- meeting_location: Meeting location or Teams link
+- document_path: File or document path
+- folder_name: Folder or directory name
+- file_name: Name of file
+- search_query: Search terms for finding items
+- site_name: SharePoint site name
+- library_name: Document library name
+- team_name: Microsoft Teams team name
+- channel_name: Teams channel name
 
 IMPORTANT: Respond with ONLY a valid JSON object in this exact format:
 {{
@@ -368,6 +428,86 @@ Output: {{
     "name": "Gabriel Jones",
     "email": "new@email.com"
   }},
+  "confidence": 0.95
+}}
+
+Input: "Send an email to john@example.com about the meeting tomorrow"
+Output: {{
+  "intent": "send_email",
+  "entities": {{
+    "email_to": "john@example.com",
+    "email_subject": "Meeting Tomorrow",
+    "email_body": "about the meeting tomorrow"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Find emails from last week"
+Output: {{
+  "intent": "search_emails",
+  "entities": {{
+    "search_query": "last week"
+  }},
+  "confidence": 0.85
+}}
+
+Input: "Schedule a Teams meeting for Monday at 2pm with the team"
+Output: {{
+  "intent": "create_meeting",
+  "entities": {{
+    "meeting_subject": "Team Meeting",
+    "meeting_start": "Monday at 2pm",
+    "meeting_attendees": "the team"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "What's on my calendar tomorrow?"
+Output: {{
+  "intent": "get_calendar_events",
+  "entities": {{
+    "search_query": "tomorrow"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "List my OneDrive files"
+Output: {{
+  "intent": "list_onedrive_files",
+  "entities": {{}},
+  "confidence": 0.95
+}}
+
+Input: "Search for budget documents in SharePoint"
+Output: {{
+  "intent": "search_sharepoint_documents",
+  "entities": {{
+    "search_query": "budget"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Upload the report to SharePoint marketing folder"
+Output: {{
+  "intent": "upload_sharepoint_document",
+  "entities": {{
+    "document_path": "report",
+    "folder_name": "marketing"
+  }},
+  "confidence": 0.85
+}}
+
+Input: "Show me my Microsoft Teams"
+Output: {{
+  "intent": "list_teams",
+  "entities": {{}},
+  "confidence": 0.95
+}}
+
+Input: "Connect my Microsoft 365 account"
+Output: {{
+  "intent": "connect_microsoft365",
+  "entities": {{}},
   "confidence": 0.95
 }}
 
@@ -692,6 +832,211 @@ IMPORTANT NOTES:
                 "endpoint": "CLARIFICATION",
                 "data": entities,
                 "description": f"Clarification response: {entities}"
+            }
+
+        # Microsoft 365 MCP Tool Integrations
+        elif intent == "send_email":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "outlook_send_email",
+                "parameters": {
+                    "to": entities.get("email_to"),
+                    "subject": entities.get("email_subject"),
+                    "body": entities.get("email_body"),
+                    "cc": entities.get("email_cc"),
+                    "bcc": entities.get("email_bcc"),
+                    "importance": entities.get("priority", "normal")
+                },
+                "description": f"Send email to {entities.get('email_to', 'recipient')}"
+            }
+
+        elif intent == "search_emails":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "outlook_search_emails",
+                "parameters": {
+                    "query": entities.get("search_query"),
+                    "folder": entities.get("email_folder", "inbox"),
+                    "limit": 20
+                },
+                "description": f"Search emails: {entities.get('search_query', 'all')}"
+            }
+
+        elif intent == "read_email":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "outlook_get_email",
+                "parameters": {
+                    "email_id": entities.get("email_id"),
+                    "include_attachments": True
+                },
+                "description": f"Read email: {entities.get('email_id', 'unknown')}"
+            }
+
+        elif intent == "create_draft":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "outlook_create_draft",
+                "parameters": {
+                    "to": entities.get("email_to"),
+                    "subject": entities.get("email_subject"),
+                    "body": entities.get("email_body"),
+                    "cc": entities.get("email_cc"),
+                    "bcc": entities.get("email_bcc")
+                },
+                "description": f"Create email draft to {entities.get('email_to', 'recipient')}"
+            }
+
+        elif intent == "list_folders":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "outlook_list_folders",
+                "parameters": {},
+                "description": "List email folders"
+            }
+
+        elif intent == "get_calendar_events":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "outlook_get_calendar_events",
+                "parameters": {
+                    "start_date": self._parse_date(entities.get("meeting_start")) or self._parse_date(entities.get("search_query")),
+                    "limit": 50
+                },
+                "description": f"Get calendar events: {entities.get('search_query', 'all')}"
+            }
+
+        elif intent in ["create_meeting", "schedule_meeting"]:
+            meeting_start = self._parse_date(entities.get("meeting_start"))
+            meeting_end = self._parse_date(entities.get("meeting_end"))
+
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "teams_create_meeting",
+                "parameters": {
+                    "subject": entities.get("meeting_subject") or "Meeting",
+                    "start_time": meeting_start,
+                    "end_time": meeting_end,
+                    "attendees": entities.get("meeting_attendees"),
+                    "location": entities.get("meeting_location")
+                },
+                "description": f"Create meeting: {entities.get('meeting_subject', 'Meeting')}"
+            }
+
+        elif intent == "join_meeting":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "teams_join_meeting",
+                "parameters": {
+                    "meeting_id": entities.get("meeting_id")
+                },
+                "description": f"Join meeting: {entities.get('meeting_id', 'unknown')}"
+            }
+
+        elif intent == "list_sharepoint_sites":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "sharepoint_list_sites",
+                "parameters": {},
+                "description": "List SharePoint sites"
+            }
+
+        elif intent == "search_sharepoint_documents":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "sharepoint_search_documents",
+                "parameters": {
+                    "query": entities.get("search_query"),
+                    "site_name": entities.get("site_name"),
+                    "library_name": entities.get("library_name"),
+                    "limit": 50
+                },
+                "description": f"Search SharePoint documents: {entities.get('search_query', 'all')}"
+            }
+
+        elif intent == "upload_sharepoint_document":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "sharepoint_upload_document",
+                "parameters": {
+                    "file_path": entities.get("document_path"),
+                    "site_name": entities.get("site_name"),
+                    "library_name": entities.get("library_name"),
+                    "folder_name": entities.get("folder_name")
+                },
+                "description": f"Upload document to SharePoint: {entities.get('document_path', 'file')}"
+            }
+
+        elif intent == "share_document":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "sharepoint_share_document",
+                "parameters": {
+                    "document_path": entities.get("document_path"),
+                    "site_name": entities.get("site_name"),
+                    "permission": entities.get("permission", "view")
+                },
+                "description": f"Share document: {entities.get('document_path', 'file')}"
+            }
+
+        elif intent == "list_onedrive_files":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "onedrive_list_files",
+                "parameters": {
+                    "folder_path": entities.get("folder_name", "/"),
+                    "limit": 50
+                },
+                "description": f"List OneDrive files in {entities.get('folder_name', 'root')}"
+            }
+
+        elif intent == "upload_onedrive_file":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "onedrive_upload_document",
+                "parameters": {
+                    "file_path": entities.get("document_path"),
+                    "folder_path": entities.get("folder_name", "/")
+                },
+                "description": f"Upload file to OneDrive: {entities.get('document_path', 'file')}"
+            }
+
+        elif intent == "list_teams":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "teams_list_teams",
+                "parameters": {},
+                "description": "List Microsoft Teams"
+            }
+
+        elif intent == "list_team_files":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "teams_list_files",
+                "parameters": {
+                    "team_name": entities.get("team_name"),
+                    "channel_name": entities.get("channel_name")
+                },
+                "description": f"List files in team: {entities.get('team_name', 'unknown')}"
+            }
+
+        elif intent == "extract_document_content":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "extract_document_content_stateless",
+                "parameters": {
+                    "document_path": entities.get("document_path"),
+                    "file_type": entities.get("file_type", "auto")
+                },
+                "description": f"Extract content from: {entities.get('document_path', 'document')}"
+            }
+
+        elif intent in ["connect_microsoft365", "authenticate_microsoft365"]:
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "authenticate",
+                "parameters": {},
+                "description": "Connect Microsoft 365 account"
             }
 
         else:

@@ -16,7 +16,7 @@ def test_command_parsing():
     print("🧪 Testing Command Parser\n")
 
     try:
-        from app.services.command_parser import command_parser, CommandType
+        from backend.app.services.old_command_parser import command_parser, CommandType
 
         test_commands = [
             "Add contact John Smith from Acme Corp",

@@ -319,6 +319,9 @@ Available operations:
 - Tasks: create, update, delete, assign, manage tasks
 - Data: export, search, filter, count all entities
 
+Connected Integrations:
+{self._get_integration_capabilities_text(user_context)}
+
 Natural Response Patterns:
 - Count queries: Use friendly language like "You have 5 contacts" (not "There are 5 contacts")
 - Empty results: Be encouraging - "You don't have any contacts yet. Would you like to add one?"
@@ -353,6 +356,46 @@ Always trust the data I provide - never guess or estimate. Be helpful, warm, and
 
         # Generate response
         return await self.generate_response(messages, provider=provider)
+
+    def _get_integration_capabilities_text(self, user_context: Dict[str, Any]) -> str:
+        """Generate text describing user's connected integration capabilities."""
+
+        # Check if user has integration context
+        user = user_context.get('user')
+        if not user or not hasattr(user, 'integrations'):
+            return "- No external integrations connected. Connect Microsoft 365 in Settings to access email, calendar, and files."
+
+        capabilities = []
+
+        # Check for Microsoft 365 integration
+        ms365_integration = None
+        for integration in user.integrations:
+            if integration.service_type == "microsoft365" and integration.is_connected:
+                ms365_integration = integration
+                break
+
+        if ms365_integration:
+            ms365_capabilities = []
+            if ms365_integration.sync_emails:
+                ms365_capabilities.extend([
+                    "search emails", "read emails", "send emails", "create drafts"
+                ])
+            if ms365_integration.sync_calendars:
+                ms365_capabilities.extend([
+                    "view calendar", "create meetings", "schedule events"
+                ])
+            if ms365_integration.sync_files:
+                ms365_capabilities.extend([
+                    "search SharePoint", "access OneDrive files", "list Teams files"
+                ])
+
+            if ms365_capabilities:
+                capabilities.append(f"- Microsoft 365: {', '.join(ms365_capabilities)}")
+
+        if not capabilities:
+            return "- No external integrations connected. Connect Microsoft 365 in Settings to access email, calendar, and files."
+
+        return "\n".join(capabilities)
 
 
 # Global AI service instance

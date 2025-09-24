@@ -5,6 +5,7 @@ from .organizations import router as organizations_router
 from .projects import router as projects_router
 from .tasks import router as tasks_router
 from .chat import router as chat_router
+from .integrations import router as integrations_router
 
 router = APIRouter()
 
@@ -15,3 +16,4 @@ router.include_router(organizations_router, prefix="/organizations", tags=["orga
 router.include_router(projects_router, prefix="/projects", tags=["projects"])
 router.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 router.include_router(chat_router, prefix="/chat", tags=["ai-chat"])
+router.include_router(integrations_router, prefix="/integrations", tags=["integrations"])

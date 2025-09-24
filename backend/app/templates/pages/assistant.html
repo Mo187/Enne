@@ -218,7 +218,7 @@ function addUserMessage(message) {
     clone.getElementById('user-message-content').innerHTML = formatMessage(message);
 
     // Add timestamp
-    clone.getElementById('user-message-time').textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    <!-- clone.getElementById('user-message-time').textContent = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}); -->
 
     // Set user initial from localStorage
     const userData = localStorage.getItem('user_data');

@@ -21,87 +21,480 @@ document.addEventListener('DOMContentLoaded', function() {
             localStorage.removeItem('access_token');
             localStorage.removeItem('user_data');
             window.location.href = '/login';
+        } else {
+            // Load Microsoft 365 integration status
+            checkMS365Status();
+
+            // Check for OAuth callback parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('integration') === 'ms365') {
+                if (urlParams.get('success') === 'true') {
+                    showMS365Success('Microsoft 365 connected successfully!');
+                    setTimeout(() => checkMS365Status(), 1000);
+                } else if (urlParams.get('error')) {
+                    showMS365Error('Connection failed: ' + urlParams.get('error'));
+                }
+                // Clean up URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
         }
     }).catch(error => console.log('Token verification failed, assuming valid'));
 });
+
+// Microsoft 365 Integration Functions
+async function checkMS365Status() {
+    const token = localStorage.getItem('access_token');
+    const statusDiv = document.getElementById('ms365-status');
+    const controlsDiv = document.getElementById('ms365-controls');
+    const connectBtn = document.getElementById('ms365-connect-btn');
+    const disconnectBtn = document.getElementById('ms365-disconnect-btn');
+    const testBtn = document.getElementById('ms365-test-btn');
+    const toolsDiv = document.getElementById('ms365-tools');
+    const errorDiv = document.getElementById('ms365-error');
+
+    try {
+        const response = await fetch('/api/v1/integrations/ms365/status', {
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+
+        const data = await response.json();
+        controlsDiv.style.display = 'block';
+
+        if (data.connected) {
+            // Connected state
+            statusDiv.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span class="text-green-600 font-medium">Connected</span>
+                    ${data.connected_at ? `<span class="text-sm text-base-content/60">since ${new Date(data.connected_at).toLocaleDateString()}</span>` : ''}
+                </div>
+            `;
+
+            connectBtn.style.display = 'none';
+            disconnectBtn.style.display = 'block';
+            testBtn.style.display = 'block';
+            toolsDiv.style.display = 'block';
+            errorDiv.style.display = 'none';
+
+        } else {
+            // Disconnected state
+            statusDiv.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 bg-gray-400 rounded-full"></div>
+                    <span class="text-gray-600">Not connected</span>
+                </div>
+            `;
+
+            connectBtn.style.display = 'block';
+            disconnectBtn.style.display = 'none';
+            testBtn.style.display = 'none';
+            toolsDiv.style.display = 'none';
+
+            if (data.error) {
+                showMS365Error(data.error);
+            } else {
+                errorDiv.style.display = 'none';
+            }
+        }
+
+    } catch (error) {
+        console.error('Failed to check MS365 status:', error);
+        statusDiv.innerHTML = `
+            <div class="flex items-center space-x-2">
+                <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+                <span class="text-red-600">Error checking status</span>
+            </div>
+        `;
+        controlsDiv.style.display = 'none';
+    }
+}
+
+async function connectMS365() {
+    const token = localStorage.getItem('access_token');
+    const connectBtn = document.getElementById('ms365-connect-btn');
+
+    connectBtn.disabled = true;
+    connectBtn.innerHTML = '<div class="loading loading-spinner loading-sm mr-2"></div>Connecting...';
+
+    try {
+        const response = await fetch('/api/v1/integrations/ms365/auth', {
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+
+        const data = await response.json();
+
+        if (data.auth_url) {
+            // Open OAuth URL in popup or redirect
+            window.location.href = data.auth_url;
+        } else {
+            throw new Error('No authorization URL received');
+        }
+
+    } catch (error) {
+        console.error('Failed to initiate MS365 connection:', error);
+        showMS365Error('Failed to start connection process: ' + error.message);
+
+        connectBtn.disabled = false;
+        connectBtn.innerHTML = `
+            <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+            </svg>
+            Connect Microsoft 365
+        `;
+    }
+}
+
+async function disconnectMS365() {
+    const token = localStorage.getItem('access_token');
+    const disconnectBtn = document.getElementById('ms365-disconnect-btn');
+
+    if (!confirm('Are you sure you want to disconnect Microsoft 365? You will lose access to email, calendar, and file operations.')) {
+        return;
+    }
+
+    disconnectBtn.disabled = true;
+    disconnectBtn.innerHTML = '<div class="loading loading-spinner loading-sm mr-2"></div>Disconnecting...';
+
+    try {
+        const response = await fetch('/api/v1/integrations/ms365', {
+            method: 'DELETE',
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showMS365Success('Microsoft 365 disconnected successfully');
+            setTimeout(() => checkMS365Status(), 1000);
+        } else {
+            throw new Error(data.message || 'Disconnect failed');
+        }
+
+    } catch (error) {
+        console.error('Failed to disconnect MS365:', error);
+        showMS365Error('Failed to disconnect: ' + error.message);
+
+        disconnectBtn.disabled = false;
+        disconnectBtn.innerHTML = `
+            <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+            </svg>
+            Disconnect
+        `;
+    }
+}
+
+async function testMS365Connection() {
+    const token = localStorage.getItem('access_token');
+    const testBtn = document.getElementById('ms365-test-btn');
+
+    testBtn.disabled = true;
+    testBtn.innerHTML = '<div class="loading loading-spinner loading-sm mr-2"></div>Testing...';
+
+    try {
+        const response = await fetch('/api/v1/integrations/ms365/test', {
+            method: 'POST',
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showMS365Success('Connection test successful! Found ' + (data.test_result?.folders_found || 0) + ' email folders.');
+        } else {
+            throw new Error(data.error || 'Test failed');
+        }
+
+    } catch (error) {
+        console.error('MS365 connection test failed:', error);
+        showMS365Error('Connection test failed: ' + error.message);
+    } finally {
+        testBtn.disabled = false;
+        testBtn.innerHTML = `
+            <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+            </svg>
+            Test Connection
+        `;
+    }
+}
+
+function showMS365Success(message) {
+    const errorDiv = document.getElementById('ms365-error');
+    errorDiv.className = 'alert alert-success mt-4';
+    errorDiv.style.display = 'block';
+    errorDiv.innerHTML = `
+        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+        </svg>
+        <div>
+            <h3 class="font-bold">Success!</h3>
+            <div class="text-xs">${message}</div>
+        </div>
+    `;
+
+    setTimeout(() => {
+        errorDiv.style.display = 'none';
+    }, 5000);
+}
+
+function showMS365Error(message) {
+    const errorDiv = document.getElementById('ms365-error');
+    const messageDiv = document.getElementById('ms365-error-message');
+
+    errorDiv.className = 'alert alert-error mt-4';
+    errorDiv.style.display = 'block';
+    messageDiv.textContent = message;
+}
+
+function showTab(tabName) {
+    // Hide all tab contents
+    const tabContents = document.querySelectorAll('.tab-content');
+    tabContents.forEach(tab => {
+        tab.style.display = 'none';
+    });
+
+    // Remove active class from all tabs
+    const tabs = document.querySelectorAll('.tab');
+    tabs.forEach(tab => {
+        tab.classList.remove('tab-active');
+    });
+
+    // Show selected tab content
+    const selectedTab = document.getElementById(tabName + '-tab');
+    if (selectedTab) {
+        selectedTab.style.display = 'block';
+    }
+
+    // Add active class to clicked tab
+    event.target.classList.add('tab-active');
+
+    // Load integration status when switching to integrations tab
+    if (tabName === 'integrations') {
+        checkMS365Status();
+    }
+}
 </script>
 {% endblock %}
 
 {% block content %}
 <div class="space-y-6">
     <div>
-        <!-- <h1 class="text-3xl font-bold">Settings</h1> -->
         <p class="text-base-content/70">Manage your account and preferences</p>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Profile Settings -->
-        <div class="card bg-base-200 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title">Profile Settings</h2>
-                <p class="text-base-content/70">Update your personal information</p>
-                <div class="mt-4">
-                    <button class="btn btn-primary">Edit Profile</button>
-                </div>
-            </div>
-        </div>
+    <!-- Tabs -->
+    <div class="tabs tabs-boxed">
+        <a class="tab tab-active" onclick="showTab('profile')">Profile</a>
+        <a class="tab" onclick="showTab('integrations')">Integrations</a>
+        <a class="tab" onclick="showTab('ai')">AI Assistant</a>
+        <a class="tab" onclick="showTab('security')">Security</a>
+    </div>
 
-        <!-- Integrations -->
-        <div class="card bg-base-200 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title">Integrations</h2>
-                <p class="text-base-content/70">Connect external services</p>
-                <div class="mt-4">
-                    <button class="btn btn-outline">Manage Integrations</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- AI Settings -->
-        <div class="card bg-base-200 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title">AI Assistant</h2>
-                <p class="text-base-content/70">Configure AI preferences and provider settings</p>
-
-                <!-- AI Provider Selection -->
-                <div class="mt-4 space-y-4">
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-medium">AI Provider</span>
-                        </label>
-                        <select
-                            id="ai-provider-settings"
-                            class="select select-bordered w-full max-w-xs"
-                            hx-post="/api/v1/chat/provider"
-                            hx-trigger="change"
-                            hx-include="this"
-                            hx-swap="none">
-                            
-                            <option value="claude">Claude (Anthropic)</option>
-                            <option value="openai">GPT (OpenAI)</option>
-                            <option value="gemini">Gemini (Google)</option>
-                        </select>
-                        <label class="label">
-                            <span class="label-text-alt">Choose your preferred AI model for the assistant</span>
-                        </label>
-                    </div>
-
-                    <div class="divider"></div>
-
+    <!-- Tab Content -->
+    <div class="min-h-[400px]">
+        <!-- Profile Tab -->
+        <div id="profile-tab" class="tab-content">
+            <div class="card bg-base-200 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title">Profile Settings</h2>
+                    <p class="text-base-content/70">Update your personal information</p>
                     <div class="mt-4">
-                        <button class="btn btn-outline">Advanced AI Settings</button>
+                        <button class="btn btn-primary">Edit Profile</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Security -->
-        <div class="card bg-base-200 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title">Security</h2>
-                <p class="text-base-content/70">Password and security settings</p>
-                <div class="mt-4">
-                    <button class="btn btn-outline">Security Settings</button>
+        <!-- Integrations Tab -->
+        <div id="integrations-tab" class="tab-content" style="display: none;">
+            <div class="space-y-6">
+                <div>
+                    <h2 class="text-2xl font-bold">Integrations</h2>
+                    <p class="text-base-content/70">Connect external services to enhance your CRM experience</p>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- Microsoft 365 Integration -->
+                    <div class="card bg-base-200 shadow-xl">
+                        <div class="card-body">
+                            <h3 class="card-title">
+                                <svg class="w-6 h-6 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M23.15 2.587L13.152.152a1.077 1.077 0 0 0-.304 0L2.85 2.587A.898.898 0 0 0 2 3.442v5.983c0 6.435 2.564 9.243 10.848 11.4a1.046 1.046 0 0 0 .304 0C21.436 18.665 24 15.857 24 9.425V3.442a.898.898 0 0 0-.85-.855zm-11.302 8.77a.652.652 0 0 1-.7-.676V7.365h-.78c-.433 0-.738-.152-.738-.676s.305-.676.738-.676h2.109c.433 0 .739.152.739.676s-.306.676-.739.676h-.729v3.316a.652.652 0 0 1-.7.676z"/>
+                                </svg>
+                                Microsoft 365
+                            </h3>
+                            <p class="text-base-content/70">Connect your Microsoft 365 account to access emails, calendar, OneDrive, and Teams</p>
+
+                            <!-- Integration Status -->
+                            <div id="ms365-status" class="mt-4">
+                                <div class="flex items-center space-x-2">
+                                    <div class="loading loading-spinner loading-sm"></div>
+                                    <span>Checking connection status...</span>
+                                </div>
+                            </div>
+
+                            <!-- Connection Controls -->
+                            <div id="ms365-controls" class="mt-4 space-y-3" style="display: none;">
+                                <!-- Connect Button -->
+                                <button id="ms365-connect-btn" class="btn btn-primary w-full" onclick="connectMS365()" style="display: none;">
+                                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                                    </svg>
+                                    Connect Microsoft 365
+                                </button>
+
+                                <!-- Disconnect Button -->
+                                <button id="ms365-disconnect-btn" class="btn btn-error btn-outline w-full" onclick="disconnectMS365()" style="display: none;">
+                                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                    </svg>
+                                    Disconnect
+                                </button>
+
+                                <!-- Test Connection Button -->
+                                <button id="ms365-test-btn" class="btn btn-secondary btn-outline" onclick="testMS365Connection()" style="display: none;">
+                                    <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                                    </svg>
+                                    Test Connection
+                                </button>
+                            </div>
+
+                            <!-- Available Tools -->
+                            <div id="ms365-tools" class="mt-4" style="display: none;">
+                                <div class="divider">Available Tools</div>
+                                <div class="grid grid-cols-2 gap-2 text-sm">
+                                    <div class="badge badge-primary badge-outline">📧 Email</div>
+                                    <div class="badge badge-primary badge-outline">📅 Calendar</div>
+                                    <div class="badge badge-primary badge-outline">📁 OneDrive</div>
+                                    <div class="badge badge-primary badge-outline">🔗 SharePoint</div>
+                                    <div class="badge badge-primary badge-outline">👥 Teams</div>
+                                    <div class="badge badge-primary badge-outline">📄 Documents</div>
+                                </div>
+                                <div class="mt-3">
+                                    <p class="text-xs text-base-content/60">
+                                        💬 Try: "Send email to john@example.com", "What's on my calendar?", "List my OneDrive files"
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Error Display -->
+                            <div id="ms365-error" class="alert alert-error mt-4" style="display: none;">
+                                <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                                </svg>
+                                <div>
+                                    <h3 class="font-bold">Connection Error</h3>
+                                    <div class="text-xs" id="ms365-error-message"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Google Workspace Integration (Placeholder) -->
+                    <div class="card bg-base-200 shadow-xl opacity-60">
+                        <div class="card-body">
+                            <h3 class="card-title">
+                                <svg class="w-6 h-6 text-blue-500" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                                </svg>
+                                Google Workspace
+                            </h3>
+                            <p class="text-base-content/70">Connect Google Workspace for Gmail, Calendar, and Drive integration</p>
+                            <div class="mt-4">
+                                <button class="btn btn-outline btn-disabled w-full">Coming Soon</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Slack Integration (Placeholder) -->
+                    <div class="card bg-base-200 shadow-xl opacity-60">
+                        <div class="card-body">
+                            <h3 class="card-title">
+                                <svg class="w-6 h-6 text-purple-600" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zM6.313 15.165a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zM8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zM8.834 6.313a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zM18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zM17.688 8.834a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zM15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zM15.165 17.688a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/>
+                                </svg>
+                                Slack
+                            </h3>
+                            <p class="text-base-content/70">Integrate with Slack for team communication and notifications</p>
+                            <div class="mt-4">
+                                <button class="btn btn-outline btn-disabled w-full">Coming Soon</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Additional Integrations (Placeholder) -->
+                    <div class="card bg-base-200 shadow-xl opacity-60">
+                        <div class="card-body">
+                            <h3 class="card-title">
+                                <svg class="w-6 h-6 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clip-rule="evenodd"/>
+                                </svg>
+                                More Integrations
+                            </h3>
+                            <p class="text-base-content/70">Additional integrations will be available soon</p>
+                            <div class="mt-4">
+                                <button class="btn btn-outline btn-disabled w-full">Coming Soon</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Assistant Tab -->
+        <div id="ai-tab" class="tab-content" style="display: none;">
+            <div class="card bg-base-200 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title">AI Assistant</h2>
+                    <p class="text-base-content/70">Configure AI preferences and provider settings</p>
+
+                    <!-- AI Provider Selection -->
+                    <div class="mt-4 space-y-4">
+                        <div class="form-control">
+                            <label class="label">
+                                <span class="label-text font-medium">AI Provider</span>
+                            </label>
+                            <select
+                                id="ai-provider-settings"
+                                class="select select-bordered w-full max-w-xs"
+                                hx-post="/api/v1/chat/provider"
+                                hx-trigger="change"
+                                hx-include="this"
+                                hx-swap="none">
+
+                                <option value="claude">Claude (Anthropic)</option>
+                                <option value="openai">GPT (OpenAI)</option>
+                                <option value="gemini">Gemini (Google)</option>
+                            </select>
+                            <label class="label">
+                                <span class="label-text-alt">Choose your preferred AI model for the assistant</span>
+                            </label>
+                        </div>
+
+                        <div class="divider"></div>
+
+                        <div class="mt-4">
+                            <button class="btn btn-outline">Advanced AI Settings</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Tab -->
+        <div id="security-tab" class="tab-content" style="display: none;">
+            <div class="card bg-base-200 shadow-xl">
+                <div class="card-body">
+                    <h2 class="card-title">Security</h2>
+                    <p class="text-base-content/70">Password and security settings</p>
+                    <div class="mt-4">
+                        <button class="btn btn-outline">Security Settings</button>
+                    </div>
                 </div>
             </div>
         </div>

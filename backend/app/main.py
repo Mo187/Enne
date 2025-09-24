@@ -9,6 +9,7 @@ import time
 
 from .core.config import settings
 from .core.database import create_tables
+from .core.startup import initialize_mcp_integrations, cleanup_mcp_integrations
 
 
 # Configure structured logging
@@ -43,10 +44,16 @@ async def lifespan(app: FastAPI):
     await create_tables()
     logger.info("Database tables created/verified")
 
+    # Initialize MCP integrations
+    await initialize_mcp_integrations()
+
     yield
 
     # Shutdown
     logger.info("Shutting down CRM application")
+
+    # Cleanup MCP integrations
+    await cleanup_mcp_integrations()
 
 
 # FastAPI application

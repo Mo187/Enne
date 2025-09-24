@@ -61,16 +61,29 @@ class Integration(Base):
         """Check if access token is expired"""
         if not self.token_expires_at:
             return False
-        return self.token_expires_at < func.now()
+        from datetime import datetime, timezone, timedelta
+        # Consider token expired if it expires within 5 minutes (buffer)
+        buffer_time = timedelta(minutes=5)
+        expiry_threshold = datetime.now(timezone.utc) + buffer_time
+        return self.token_expires_at <= expiry_threshold
 
     @property
     def needs_refresh(self):
         """Check if token needs refresh (expires within 1 hour)"""
-        if not self.token_expires_at:
+        if not self.token_expires_at or not self.refresh_token:
             return False
-        from datetime import datetime, timedelta
-        threshold = datetime.now(self.token_expires_at.tzinfo) + timedelta(hours=1)
-        return self.token_expires_at < threshold
+        from datetime import datetime, timezone, timedelta
+        threshold = datetime.now(timezone.utc) + timedelta(hours=1)
+        return self.token_expires_at <= threshold
+
+    @property
+    def is_connected(self):
+        """Check if integration is connected and usable"""
+        return (
+            self.is_active and
+            self.access_token and
+            not self.is_token_expired
+        )
 
     @property
     def is_healthy(self):

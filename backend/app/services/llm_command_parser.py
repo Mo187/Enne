@@ -49,6 +49,8 @@ class LLMCommandParser:
             "send_email",
             "search_emails",
             "read_email",
+            "get_latest_email",
+            "get_new_emails",
             "create_draft",
             "list_folders",
             "get_calendar_events",
@@ -71,13 +73,19 @@ class LLMCommandParser:
         # Cache key for prompt caching
         self.cached_system_prompt = None
 
-    async def parse_command(self, text: str, user_context: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def parse_command(
+        self,
+        text: str,
+        user_context: Dict[str, Any] = None,
+        conversation_history: List[Dict[str, str]] = None
+    ) -> Dict[str, Any]:
         """
         Parse natural language command using LLM
 
         Args:
             text: Natural language command from user
             user_context: Optional context about the user
+            conversation_history: Optional conversation history for follow-up detection
 
         Returns:
             Dict with intent, entities, and confidence
@@ -88,6 +96,15 @@ class LLMCommandParser:
                 "intent": "unknown",
                 "entities": {},
                 "confidence": 0.0,
+                "raw_text": text
+            }
+
+        # Check if this is a follow-up question before parsing
+        if conversation_history and self._is_follow_up_question(text, conversation_history):
+            return {
+                "intent": "answer_from_context",
+                "entities": {"question": text},
+                "confidence": 0.95,
                 "raw_text": text
             }
 
@@ -122,13 +139,26 @@ class LLMCommandParser:
     def _build_extraction_prompt(self) -> str:
         """Build cached prompt for LLM to extract intent and entities"""
 
-        # Force rebuild to include new examples
-        if False and self.cached_system_prompt:
+        # Use cached prompt if available
+        if self.cached_system_prompt:
             return self.cached_system_prompt
 
         prompt = """You are an expert at understanding CRM (Customer Relationship Management) commands.
 
-Your task is to extract the INTENT and ENTITIES from user commands.
+Your task is to extract the INTENT and ENTITIES from user commands, using natural language understanding.
+
+CRITICAL: Recognize natural language variations for actions:
+- CREATE: "add", "create", "new", "register", "make", "set up"
+- UPDATE: "update", "change", "modify", "edit", "alter", "fix", "correct", "set"
+- DELETE: "delete", "remove", "drop", "erase", "get rid of", "eliminate"
+- SEARCH: "find", "search", "look for", "show me", "get", "retrieve", "display"
+- LIST: "list", "show all", "display all", "what are my", "how many"
+
+IMPORTANT: Commands without explicit action words should infer intent from context:
+- "Luke" or "Delete Luke" or "Remove Luke" → delete_contact (if Luke exists in context)
+- "Mike's email is new@email.com" → update_contact
+- "Add John Smith" → create_contact
+- "Contact for Sarah" → create_contact
 
 Available intents:
 - create_contact: User wants to add a new contact
@@ -156,8 +186,10 @@ Available intents:
 - help: User needs help/instructions
 - unknown: Intent cannot be determined
 - send_email: User wants to send an email
-- search_emails: User wants to find specific emails
+- search_emails: User wants to find, view, list, show, retrieve, or access emails (includes generic requests like "show my emails", "get my recent emails")
 - read_email: User wants to read a specific email
+- get_latest_email: User specifically wants the most recent, latest, or newest email
+- get_new_emails: User wants unread, new, or unseen emails
 - create_draft: User wants to create an email draft
 - list_folders: User wants to see email folders
 - get_calendar_events: User wants to see calendar events
@@ -241,91 +273,34 @@ IMPORTANT: Respond with ONLY a valid JSON object in this exact format:
 
 Examples:
 
-Input: "Can you create a contact for Mike Ogego. He's Enne Co-founder, his number is 079990000."
+Input: "Create a contact named Luke with email luke@email.com"
 Output: {{
   "intent": "create_contact",
   "entities": {{
-    "name": "Mike Ogego",
-    "organization": "Enne",
-    "job_position": "Co-founder",
-    "phone": "079990000"
+    "name": "Luke",
+    "email": "luke@email.com"
   }},
   "confidence": 0.95
 }}
 
-Input: "Add a company called Acme Inc in the technology industry"
+Input: "Create a contact called Wesley Waka, his phone number is 1234567890"
 Output: {{
-  "intent": "create_organization",
+  "intent": "create_contact",
   "entities": {{
-    "name": "Acme Inc",
-    "industry": "technology"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Create a Project called Website Redesign, Due date should be tomorrow"
-Output: {{
-  "intent": "create_project",
-  "entities": {{
-    "project_name": "Website Redesign",
-    "due_date": "tomorrow"
+    "name": "Wesley Waka",
+    "phone": "1234567890"
   }},
   "confidence": 0.95
 }}
 
-Input: "Add task Review wireframes to Website Redesign project with high priority"
+Input: "Add Sarah Johnson as a contact, her email is sarah@email.com"
 Output: {{
-  "intent": "create_task",
+  "intent": "create_contact",
   "entities": {{
-    "task_name": "Review wireframes",
-    "project_name": "Website Redesign",
-    "priority": "high"
+    "name": "Sarah Johnson",
+    "email": "sarah@email.com"
   }},
-  "confidence": 0.9
-}}
-
-Input: "Show me all projects"
-Output: {{
-  "intent": "list_projects",
-  "entities": {{}},
-  "confidence": 0.9
-}}
-
-Input: "How many contacts do I have"
-Output: {{
-  "intent": "list_contacts",
-  "entities": {{}},
-  "confidence": 0.9
-}}
-
-Input: "Show me all my contacts"
-Output: {{
-  "intent": "list_contacts",
-  "entities": {{}},
-  "confidence": 0.9
-}}
-
-Input: "How many organizations do I have"
-Output: {{
-  "intent": "list_organizations",
-  "entities": {{}},
-  "confidence": 0.9
-}}
-
-Input: "List all my companies"
-Output: {{
-  "intent": "list_organizations",
-  "entities": {{}},
-  "confidence": 0.9
-}}
-
-Input: "Show me all contacts from tech companies"
-Output: {{
-  "intent": "search_contacts",
-  "entities": {{
-    "search_query": "tech companies"
-  }},
-  "confidence": 0.85
+  "confidence": 0.95
 }}
 
 Input: "Update Gabriel's phone number to 123456789"
@@ -338,69 +313,167 @@ Output: {{
   "confidence": 0.9
 }}
 
-Input: "Change Mike's email to new@email.com"
+Input: "update his phone to 555-1234"
 Output: {{
   "intent": "update_contact",
   "entities": {{
-    "name": "Mike",
-    "email": "new@email.com"
+    "name": "him",
+    "phone": "555-1234"
   }},
   "confidence": 0.9
 }}
 
-Input: "Update the Acme project status to completed"
+Input: "add his email which is test@example.com"
 Output: {{
-  "intent": "update_project",
+  "intent": "update_contact",
   "entities": {{
-    "project_name": "Acme",
-    "status": "completed"
+    "name": "him",
+    "email": "test@example.com"
   }},
-  "confidence": 0.85
+  "confidence": 0.9
 }}
 
-Input: "How many contacts called Gabriel"
+Input: "update his name to Wesley Waka"
+Output: {{
+  "intent": "update_contact",
+  "entities": {{
+    "name": "Wesley Waka"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "change her name to Sarah Miller"
+Output: {{
+  "intent": "update_contact",
+  "entities": {{
+    "name": "Sarah Miller"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Delete Luke"
+Output: {{
+  "intent": "delete_contact",
+  "entities": {{
+    "name": "Luke"
+  }},
+  "confidence": 0.95
+}}
+
+Input: "Search for contacts named John"
 Output: {{
   "intent": "search_contacts",
-  "entities": {{
-    "search_query": "Gabriel"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Show me contacts named Mike"
-Output: {{
-  "intent": "search_contacts",
-  "entities": {{
-    "search_query": "Mike"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Count how many projects are completed"
-Output: {{
-  "intent": "search_projects",
-  "entities": {{
-    "status": "completed"
-  }},
-  "confidence": 0.85
-}}
-
-Input: "Find all tasks assigned to John"
-Output: {{
-  "intent": "search_tasks",
   "entities": {{
     "search_query": "John"
   }},
   "confidence": 0.9
 }}
 
-Input: "List organizations in tech industry"
+Input: "Create organization Acme Corp"
 Output: {{
-  "intent": "search_organizations",
+  "intent": "create_organization",
   "entities": {{
-    "search_query": "tech"
+    "name": "Acme Corp"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "update its website to example.com"
+Output: {{
+  "intent": "update_organization",
+  "entities": {{
+    "name": "it",
+    "website": "example.com"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Delete Acme Corp organization"
+Output: {{
+  "intent": "delete_organization",
+  "entities": {{
+    "name": "Acme Corp"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Create project Website Redesign for Acme Corp"
+Output: {{
+  "intent": "create_project",
+  "entities": {{
+    "project_name": "Website Redesign",
+    "organization_id": "Acme Corp"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Update Website Redesign status to completed"
+Output: {{
+  "intent": "update_project",
+  "entities": {{
+    "project_name": "Website Redesign",
+    "status": "completed"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Delete Website Redesign project"
+Output: {{
+  "intent": "delete_project",
+  "entities": {{
+    "project_name": "Website Redesign"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Create task Review Documentation"
+Output: {{
+  "intent": "create_task",
+  "entities": {{
+    "task_name": "Review Documentation"
+  }},
+  "confidence": 0.9
+}}
+
+Input: "Update task status to completed"
+Output: {{
+  "intent": "update_task",
+  "entities": {{
+    "status": "completed"
   }},
   "confidence": 0.85
+}}
+
+Input: "Do I have any emails from momoagoumar@gmail.com?"
+Output: {{
+  "intent": "search_emails",
+  "entities": {{
+    "search_query": "momoagoumar@gmail.com"
+  }},
+  "confidence": 0.95
+}}
+
+Input: "Show me my latest email"
+Output: {{
+  "intent": "get_latest_email",
+  "entities": {{}},
+  "confidence": 0.9
+}}
+
+Input: "Any new emails?"
+Output: {{
+  "intent": "get_new_emails",
+  "entities": {{}},
+  "confidence": 0.9
+}}
+
+Input: "Send email to john@example.com"
+Output: {{
+  "intent": "send_email",
+  "entities": {{
+    "email_to": "john@example.com"
+  }},
+  "confidence": 0.9
 }}
 
 Input: "Gabriel Jones"
@@ -412,101 +485,51 @@ Output: {{
   "confidence": 0.95
 }}
 
-Input: "The first one"
+Input: "yes" (after being asked if user wants full email retrieval)
 Output: {{
-  "intent": "clarification_response",
-  "entities": {{
-    "selected_option": "first"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Update Gabriel Jones email to new@email.com"
-Output: {{
-  "intent": "update_contact",
-  "entities": {{
-    "name": "Gabriel Jones",
-    "email": "new@email.com"
-  }},
-  "confidence": 0.95
-}}
-
-Input: "Send an email to john@example.com about the meeting tomorrow"
-Output: {{
-  "intent": "send_email",
-  "entities": {{
-    "email_to": "john@example.com",
-    "email_subject": "Meeting Tomorrow",
-    "email_body": "about the meeting tomorrow"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Find emails from last week"
-Output: {{
-  "intent": "search_emails",
-  "entities": {{
-    "search_query": "last week"
-  }},
+  "intent": "get_latest_email",
+  "entities": {{}},
   "confidence": 0.85
 }}
 
-Input: "Schedule a Teams meeting for Monday at 2pm with the team"
+Input: "yes" (after being asked if user wants email details)
 Output: {{
-  "intent": "create_meeting",
-  "entities": {{
-    "meeting_subject": "Team Meeting",
-    "meeting_start": "Monday at 2pm",
-    "meeting_attendees": "the team"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "What's on my calendar tomorrow?"
-Output: {{
-  "intent": "get_calendar_events",
-  "entities": {{
-    "search_query": "tomorrow"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "List my OneDrive files"
-Output: {{
-  "intent": "list_onedrive_files",
+  "intent": "get_latest_email",
   "entities": {{}},
   "confidence": 0.95
 }}
 
-Input: "Search for budget documents in SharePoint"
+Input: "yes please" (after being offered to show email)
 Output: {{
-  "intent": "search_sharepoint_documents",
-  "entities": {{
-    "search_query": "budget"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Upload the report to SharePoint marketing folder"
-Output: {{
-  "intent": "upload_sharepoint_document",
-  "entities": {{
-    "document_path": "report",
-    "folder_name": "marketing"
-  }},
-  "confidence": 0.85
-}}
-
-Input: "Show me my Microsoft Teams"
-Output: {{
-  "intent": "list_teams",
+  "intent": "get_latest_email",
   "entities": {{}},
   "confidence": 0.95
 }}
 
-Input: "Connect my Microsoft 365 account"
+Input: "sure" (after email retrieval offer)
 Output: {{
-  "intent": "connect_microsoft365",
+  "intent": "get_latest_email",
+  "entities": {{}},
+  "confidence": 0.9
+}}
+
+Input: "ok" (after being asked about showing email)
+Output: {{
+  "intent": "get_latest_email",
+  "entities": {{}},
+  "confidence": 0.9
+}}
+
+Input: "yeah" (after email summary offer)
+Output: {{
+  "intent": "get_latest_email",
+  "entities": {{}},
+  "confidence": 0.9
+}}
+
+Input: "show it" (after finding emails)
+Output: {{
+  "intent": "get_latest_email",
   "entities": {{}},
   "confidence": 0.95
 }}
@@ -631,6 +654,38 @@ IMPORTANT NOTES:
                 "data": entities,
                 "identifier": entities.get("name"),
                 "description": f"Update organization: {entities.get('name', 'Unknown')}"
+            }
+
+        elif intent == "delete_contact":
+            return {
+                "method": "DELETE",
+                "endpoint": "/api/v1/contacts/delete",
+                "identifier": entities.get("name") or entities.get("email"),
+                "description": f"Delete contact: {entities.get('name', 'Unknown')}"
+            }
+
+        elif intent == "delete_organization":
+            return {
+                "method": "DELETE",
+                "endpoint": "/api/v1/organizations/delete",
+                "identifier": entities.get("name"),
+                "description": f"Delete organization: {entities.get('name', 'Unknown')}"
+            }
+
+        elif intent == "delete_project":
+            return {
+                "method": "DELETE",
+                "endpoint": "/api/v1/projects/delete",
+                "identifier": entities.get("project_name") or entities.get("name"),
+                "description": f"Delete project: {entities.get('project_name') or entities.get('name', 'Unknown')}"
+            }
+
+        elif intent == "delete_task":
+            return {
+                "method": "DELETE",
+                "endpoint": "/api/v1/tasks/delete",
+                "identifier": entities.get("task_name") or entities.get("name"),
+                "description": f"Delete task: {entities.get('task_name') or entities.get('name', 'Unknown')}"
             }
 
         elif intent == "search_contacts":
@@ -851,14 +906,34 @@ IMPORTANT NOTES:
             }
 
         elif intent == "search_emails":
+            # Detect if user wants recent emails
+            message_lower = ""
+            params = {
+                "query": entities.get("search_query"),
+                "folder": entities.get("email_folder", "inbox"),
+                "limit": entities.get("limit", 20),
+                "unread_only": entities.get("unread_only", False)
+            }
+
+            # Add date filter for recent requests (last 7 days)
+            if not entities.get("from_date"):
+                search_query_lower = (entities.get("search_query") or "").lower()
+                is_recent_request = any(word in search_query_lower for word in [
+                    "recent", "latest", "new", "today", "this week", "last"
+                ])
+
+                if is_recent_request:
+                    from datetime import datetime, timedelta
+                    seven_days_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+                    params["from_date"] = seven_days_ago
+                    logger.info(f"Added date filter for recent request: from_date={seven_days_ago}")
+            else:
+                params["from_date"] = entities.get("from_date")
+
             return {
                 "method": "MCP_TOOL",
                 "tool_name": "outlook_search_emails",
-                "parameters": {
-                    "query": entities.get("search_query"),
-                    "folder": entities.get("email_folder", "inbox"),
-                    "limit": 20
-                },
+                "parameters": params,
                 "description": f"Search emails: {entities.get('search_query', 'all')}"
             }
 
@@ -871,6 +946,34 @@ IMPORTANT NOTES:
                     "include_attachments": True
                 },
                 "description": f"Read email: {entities.get('email_id', 'unknown')}"
+            }
+        elif intent == "get_latest_email":
+            # Check if there's a tracked email from conversation memory
+            # NOTE: We cannot access per-user memory here because generate_api_action
+            # doesn't receive user_id. The tracking will be handled in chat.py instead.
+            # For now, don't try to retrieve tracked email ID here.
+            tracked_email_id = None  # Will be set by chat.py if needed
+
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "outlook_get_email",
+                "parameters": {
+                    "email_id": tracked_email_id,  # Will be injected by chat.py
+                    "include_attachments": True
+                },
+                "description": "Get latest email"
+            }
+        elif intent == "get_new_emails":
+            return {
+                "method": "MCP_TOOL",
+                "tool_name": "outlook_search_emails",
+                "parameters": {
+                    "query": None,
+                    "folder": "inbox",
+                    "limit": 20,
+                    "unread_only": True  # New parameter for filtering unread emails
+                },
+                "description": "Get unread/new emails"
             }
 
         elif intent == "create_draft":
@@ -1104,6 +1207,150 @@ IMPORTANT NOTES:
         except Exception as e:
             logger.warning("Failed to parse date", date_input=date_input, error=str(e))
             return None
+
+    def _is_follow_up_question(self, text: str, conversation_history: List[Dict[str, str]]) -> bool:
+        """
+        Detect if this is a follow-up question to previous conversation.
+
+        Enhanced version that tracks:
+        - Email references
+        - Contact references
+        - Project/task references
+        - Pronoun usage ("it", "that one", "the first one")
+        - Generic follow-up patterns
+
+        Args:
+            text: Current user message
+            conversation_history: Previous conversation messages
+
+        Returns:
+            True if this is a follow-up question, False otherwise
+        """
+        # Check if this is an email retrieval ACTION (not a follow-up question)
+        # User says "yes", "retrieve it", "get it", etc. after AI offered to retrieve
+        retrieval_action_indicators = [
+            "retrieve it", "retrieve", "get it", "get the full",
+            "show me the full", "show me the body", "show the body",
+            "yes please", "yes get", "yes retrieve", "yes show",
+            "ok retrieve", "ok get", "okay get", "sure retrieve",
+            "go ahead", "please retrieve", "please get"
+        ]
+
+        text_lower = text.lower().strip()
+
+        # Short affirmative responses after email discussion = likely retrieval action
+        if text_lower in ["yes", "sure", "ok", "okay", "yeah", "yep", "please", "do it"]:
+            # Check if conversation mentioned emails recently
+            if conversation_history and len(conversation_history) > 0:
+                recent_messages = conversation_history[-3:]
+                for msg in recent_messages:
+                    content = msg.get("content", "").lower()
+                    if any(indicator in content for indicator in [
+                        "retrieve", "full email", "full body", "full content",
+                        "body preview", "truncated", "would you like me to retrieve"
+                    ]):
+                        # This is likely "yes" to retrieval offer, NOT a follow-up question
+                        return False  # Don't treat as follow-up, let it be parsed as action
+
+        # Check if this is an explicit retrieval action
+        is_retrieval_action = any(indicator in text_lower for indicator in retrieval_action_indicators)
+        if is_retrieval_action:
+            # Check if conversation mentioned emails recently
+            if conversation_history and len(conversation_history) > 0:
+                recent_messages = conversation_history[-3:]
+                for msg in recent_messages:
+                    content = msg.get("content", "").lower()
+                    if any(indicator in content for indicator in ["email", "subject:", "from:", "inbox", "message"]):
+                        # This is an email retrieval action, not a follow-up question
+                        return False  # Don't treat as follow-up, let it be parsed as action
+
+        # Universal follow-up indicators (applies to all entity types)
+        follow_up_indicators = [
+            # Email-specific (but NOT retrieval actions)
+            "that email", "the email", "this email", "those emails",
+            # Contact-specific
+            "that contact", "the contact", "this person", "him", "her",
+            # Project/task-specific
+            "that project", "the project", "that task", "the task",
+            # Organization-specific
+            "that organization", "that company", "the organization",
+            # Generic references
+            "that one", "this one", "it", "that", "this", "those",
+            "the one", "them", "the first one", "first one", "the second",
+            "the last one", "last one", "latest one",
+            # Content requests (passive, not active retrieval)
+            "tell me more", "what does it say",
+            "what's in it", "what about", "summarize it",
+            "what's the content", "what is it",
+            "from that", "from the", "about that", "about the", "about it",
+            # Follow-up actions
+            "more info", "additional details", "what else", "anything else",
+            "can you tell me", "do you know", "what do you know about"
+        ]
+
+        # Check if message contains follow-up indicators
+        has_indicator = any(indicator in text_lower for indicator in follow_up_indicators)
+
+        if not has_indicator:
+            return False
+
+        # Check if conversation history mentions relevant entities in recent messages
+        if conversation_history and len(conversation_history) > 0:
+            # Look at last 5 messages for entity-related content
+            recent_messages = conversation_history[-5:]
+
+            for msg in recent_messages:
+                content = msg.get("content", "").lower()
+
+                # Check if previous messages were about emails
+                email_indicators = [
+                    "email", "subject:", "from:", "inbox", "message",
+                    "received_date", "body content", "outlook", "sender"
+                ]
+
+                # Check if previous messages were about contacts
+                contact_indicators = [
+                    "contact", "person", "name:", "phone:", "email:",
+                    "job_position", "organization:"
+                ]
+
+                # Check if previous messages were about projects
+                project_indicators = [
+                    "project", "status:", "priority:", "due date:",
+                    "planned", "in progress", "completed"
+                ]
+
+                # Check if previous messages were about tasks
+                task_indicators = [
+                    "task", "assignee:", "priority:", "pending",
+                    "blocked", "cancelled"
+                ]
+
+                # Check if previous messages were about organizations
+                org_indicators = [
+                    "organization", "company", "industry:", "website:"
+                ]
+
+                # Data payload indicators (suggests data was recently shown)
+                data_indicators = [
+                    "query result", "exact count", "found", "showing",
+                    "retrieved", "created successfully", "updated successfully"
+                ]
+
+                all_indicators = (
+                    email_indicators + contact_indicators + project_indicators +
+                    task_indicators + org_indicators + data_indicators
+                )
+
+                if any(indicator in content for indicator in all_indicators):
+                    logger.debug(
+                        "Follow-up detected: found entity reference in recent messages",
+                        text=text,
+                        matched_in_history=True
+                    )
+                    return True
+
+        return False
 
 
 # Global LLM command parser instance

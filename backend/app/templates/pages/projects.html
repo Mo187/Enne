@@ -52,48 +52,50 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
     }
 });
 
-// Add project form submission
-document.getElementById('add-project-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
+// Handle form submission with event delegation
+document.addEventListener('submit', async function(e) {
+    if (e.target.id === 'add-project-form') {
+        e.preventDefault();
 
-    const formData = new FormData(e.target);
-    const projectData = Object.fromEntries(formData.entries());
+        const formData = new FormData(e.target);
+        const projectData = Object.fromEntries(formData.entries());
 
-    // Convert date fields
-    if (projectData.start_date) {
-        projectData.start_date = new Date(projectData.start_date).toISOString();
-    }
-    if (projectData.due_date) {
-        projectData.due_date = new Date(projectData.due_date).toISOString();
-    }
-
-    // Convert tags to array
-    if (projectData.tags) {
-        projectData.tags = projectData.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
-    }
-
-    try {
-        const response = await fetch('/api/v1/projects', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + localStorage.getItem('access_token')
-            },
-            body: JSON.stringify(projectData)
-        });
-
-        if (response.ok) {
-            document.getElementById('add-project-modal').close();
-            e.target.reset();
-            htmx.trigger('#projects-list', 'htmx:load');
-            showToast('Project created successfully!', 'success');
-        } else {
-            const error = await response.json();
-            showToast(error.detail || 'Failed to create project', 'error');
+        // Convert date fields
+        if (projectData.start_date) {
+            projectData.start_date = new Date(projectData.start_date).toISOString();
         }
-    } catch (error) {
-        console.error('Error creating project:', error);
-        showToast('Network error occurred', 'error');
+        if (projectData.due_date) {
+            projectData.due_date = new Date(projectData.due_date).toISOString();
+        }
+
+        // Convert tags to array
+        if (projectData.tags) {
+            projectData.tags = projectData.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+        }
+
+        try {
+            const response = await fetch('/api/v1/projects', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('access_token')
+                },
+                body: JSON.stringify(projectData)
+            });
+
+            if (response.ok) {
+                document.getElementById('add-project-modal').close();
+                e.target.reset();
+                htmx.trigger('#projects-list', 'htmx:load');
+                showToast('Project created successfully!', 'success');
+            } else {
+                const error = await response.json();
+                showToast(error.detail || 'Failed to create project', 'error');
+            }
+        } catch (error) {
+            console.error('Error creating project:', error);
+            showToast('Network error occurred', 'error');
+        }
     }
 });
 
@@ -232,30 +234,39 @@ function showToast(message, type = 'info') {
 {% endblock %}
 
 {% block content %}
-<div class="space-y-4">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-        <!-- <div>
-            <h1 class="text-3xl font-bold" style="color: var(--foreground)">Projects</h1>
-            <p style="color: var(--foreground-secondary)">Manage your projects and track progress</p>
-        </div> -->
-        <button class="btn-modern" onclick="document.getElementById('add-project-modal').showModal()">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<div class="space-y-8">
+    <!-- Enhanced Header with Gradient Title -->
+    <div class="flex items-center justify-between mb-8">
+        <div class="space-y-2">
+            <!-- <h1 class="text-4xl font-bold text-gradient">
+                Projects
+            </h1> -->
+            <p class="text-lg opacity-80" style="color: var(--foreground-secondary)">
+                Track progress and deliver results 🚀
+            </p>
+        </div>
+        <button class="btn-modern btn-primary group" onclick="document.getElementById('add-project-modal').showModal()">
+            <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
             </svg>
             Create Project
         </button>
     </div>
 
-    <!-- Search and Filter -->
-    <div class="card-modern p-6 mb-6">
-            <div class="flex flex-col md:flex-row gap-2">
-                <div class="flex-1">
+    <!-- Enhanced Search and Filter Section -->
+    <div class="search-container-modern backdrop-blur-lg">
+        <div class="flex flex-col lg:flex-row gap-4 items-stretch">
+            <!-- Search Input with Glass Effect -->
+            <div class="flex-1 relative">
+                <div class="search-input-wrapper">
+                    <svg class="search-icon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
                     <input
                         type="text"
                         name="search"
                         placeholder="Search projects by name or description..."
-                        class="input input-bordered w-full"
+                        class="search-input-modern"
                         id="search-projects"
                         hx-get="/api/v1/projects"
                         hx-trigger="keyup changed delay:300ms"
@@ -263,38 +274,55 @@ function showToast(message, type = 'info') {
                         hx-include="[name='status-filter'], [name='priority-filter'], [name='organization-filter']"
                     >
                 </div>
-                <select name="status-filter" class="select select-bordered" id="status-filter"
-                        hx-get="/api/v1/projects"
-                        hx-trigger="change"
-                        hx-target="#projects-list"
-                        hx-include="#search-projects, [name='priority-filter'], [name='organization-filter']">
-                    <option value="">All Status</option>
-                    <option value="planned">Planned</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="completed">Completed</option>
-                    <option value="on_hold">On Hold</option>
-                    <option value="cancelled">Cancelled</option>
-                </select>
-                <select name="priority-filter" class="select select-bordered" id="priority-filter"
-                        hx-get="/api/v1/projects"
-                        hx-trigger="change"
-                        hx-target="#projects-list"
-                        hx-include="#search-projects, [name='status-filter'], [name='organization-filter']">
-                    <option value="">All Priority</option>
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                </select>
-                <select name="organization-filter" class="select select-bordered" id="organization-filter"
-                        hx-get="/api/v1/projects"
-                        hx-trigger="change"
-                        hx-target="#projects-list"
-                        hx-include="#search-projects, [name='status-filter'], [name='priority-filter']">
-                    <option value="">All Organizations</option>
-                </select>
-                <button class="btn btn-outline" onclick="exportProjects()">
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            </div>
+
+            <!-- Filter Dropdowns Row -->
+            <div class="flex flex-col sm:flex-row gap-4">
+                <!-- Status Filter -->
+                <div class="filter-select-wrapper min-w-32">
+                    <select name="status-filter" class="filter-select-modern" id="status-filter"
+                            hx-get="/api/v1/projects"
+                            hx-trigger="change"
+                            hx-target="#projects-list"
+                            hx-include="#search-projects, [name='priority-filter'], [name='organization-filter']">
+                        <option value="">All Status</option>
+                        <option value="planned">Planned</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="on_hold">On Hold</option>
+                        <option value="cancelled">Cancelled</option>
+                    </select>
+                </div>
+
+                <!-- Priority Filter -->
+                <div class="filter-select-wrapper min-w-32">
+                    <select name="priority-filter" class="filter-select-modern" id="priority-filter"
+                            hx-get="/api/v1/projects"
+                            hx-trigger="change"
+                            hx-target="#projects-list"
+                            hx-include="#search-projects, [name='status-filter'], [name='organization-filter']">
+                        <option value="">All Priority</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                    </select>
+                </div>
+
+                <!-- Organization Filter -->
+                <div class="filter-select-wrapper min-w-40">
+                    <select name="organization-filter" class="filter-select-modern" id="organization-filter"
+                            hx-get="/api/v1/projects"
+                            hx-trigger="change"
+                            hx-target="#projects-list"
+                            hx-include="#search-projects, [name='status-filter'], [name='priority-filter']">
+                        <option value="">All Organizations</option>
+                    </select>
+                </div>
+
+                <!-- Export Button -->
+                <button class="btn-modern btn-secondary group" onclick="exportProjects()">
+                    <svg class="w-4 h-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                     </svg>
                     Export CSV
@@ -303,125 +331,145 @@ function showToast(message, type = 'info') {
         </div>
     </div>
 
-    <!-- Projects List -->
+    <!-- Enhanced Projects List -->
     <div id="projects-list"
          hx-get="/api/v1/projects"
          hx-trigger="load"
-         hx-swap="innerHTML">
-        <!-- Loading placeholder -->
-        <div class="card bg-base-200 shadow-xl">
-            <div class="card-body text-center py-10">
-                <span class="loading loading-spinner loading-lg"></span>
-                <p class="mt-6">Loading projects...</p>
+         hx-swap="innerHTML"
+         class="projects-grid-modern">
+        <!-- Beautiful Loading State -->
+        <div class="loading-card-modern">
+            <div class="loading-spinner-modern"></div>
+            <div class="space-y-2 text-center">
+                <h3 class="text-lg font-semibold" style="color: var(--foreground)">Loading projects</h3>
+                <p class="opacity-70" style="color: var(--foreground-secondary)">Gathering your project portfolio...</p>
             </div>
         </div>
     </div>
 
-    <!-- Add Project Modal -->
-    <dialog id="add-project-modal" class="modal">
-        <div class="modal-box w-11/12 max-w-3xl">
-            <h3 class="font-bold text-lg mb-4">Create New Project</h3>
-
-            <form id="add-project-form" class="space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Project Name *</span>
-                        </label>
-                        <input type="text" name="name" class="input input-bordered" required>
+    <!-- Enhanced Add Project Modal -->
+    <dialog id="add-project-modal" class="modal-modern">
+        <div class="modal-backdrop-modern" onclick="document.getElementById('add-project-modal').close()"></div>
+        <div class="modal-card-modern" style="max-width: 800px;">
+            <!-- Modal Header -->
+            <div class="modal-header-modern">
+                <div class="flex items-center space-x-3">
+                    <div class="icon-badge-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                        </svg>
                     </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Organization</span>
-                        </label>
-                        <select name="organization_id" class="select select-bordered" id="project-organization">
-                            <option value="">Select Organization</option>
-                        </select>
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Status</span>
-                        </label>
-                        <select name="status" class="select select-bordered">
-                            <option value="planned">Planned</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="completed">Completed</option>
-                            <option value="on_hold">On Hold</option>
-                        </select>
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Priority</span>
-                        </label>
-                        <select name="priority" class="select select-bordered">
-                            <option value="low">Low</option>
-                            <option value="medium" selected>Medium</option>
-                            <option value="high">High</option>
-                            <option value="urgent">Urgent</option>
-                        </select>
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Start Date</span>
-                        </label>
-                        <input type="date" name="start_date" class="input input-bordered">
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Due Date</span>
-                        </label>
-                        <input type="date" name="due_date" class="input input-bordered">
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Estimated Hours</span>
-                        </label>
-                        <input type="number" name="estimated_hours" class="input input-bordered" min="0">
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text">Budget</span>
-                        </label>
-                        <input type="text" name="budget" class="input input-bordered" placeholder="e.g., $10,000">
-                    </div>
+                    <h3 class="text-2xl font-bold text-gradient">Create New Project</h3>
                 </div>
+                <button type="button" class="modal-close-btn" onclick="document.getElementById('add-project-modal').close()">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
 
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">Description</span>
-                    </label>
-                    <textarea name="description" class="textarea textarea-bordered" rows="3"></textarea>
-                </div>
+            <!-- Modal Content -->
+            <div class="modal-content-modern">
+                <form id="add-project-form" class="space-y-6">
+                    <!-- Basic Info Section -->
+                    <div class="space-y-4">
+                        <h4 class="text-lg font-semibold opacity-90" style="color: var(--foreground)">Basic Information</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="form-group-modern">
+                                <label class="form-label-modern">Project Name *</label>
+                                <input type="text" name="name" class="form-input-modern" placeholder="Enter project name" required>
+                            </div>
 
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">Tags</span>
-                    </label>
-                    <input type="text" name="tags" class="input input-bordered" placeholder="tag1, tag2, tag3">
-                    <label class="label">
-                        <span class="label-text-alt">Separate tags with commas</span>
-                    </label>
-                </div>
+                            <div class="form-group-modern">
+                                <label class="form-label-modern">Organization</label>
+                                <select name="organization_id" class="form-input-modern" id="project-organization">
+                                    <option value="">Select Organization</option>
+                                </select>
+                            </div>
 
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">Notes</span>
-                    </label>
-                    <textarea name="notes" class="textarea textarea-bordered" rows="2"></textarea>
-                </div>
+                            <div class="form-group-modern">
+                                <label class="form-label-modern">Status</label>
+                                <select name="status" class="form-input-modern">
+                                    <option value="planned">📋 Planned</option>
+                                    <option value="in_progress">🚀 In Progress</option>
+                                    <option value="completed">✅ Completed</option>
+                                    <option value="on_hold">⏸️ On Hold</option>
+                                </select>
+                            </div>
 
-                <div class="modal-action">
-                    <button type="button" class="btn btn-ghost" onclick="document.getElementById('add-project-modal').close()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Create Project</button>
-                </div>
-            </form>
+                            <div class="form-group-modern">
+                                <label class="form-label-modern">Priority</label>
+                                <select name="priority" class="form-input-modern">
+                                    <option value="low">🟢 Low</option>
+                                    <option value="medium" selected>🟡 Medium</option>
+                                    <option value="high">🟠 High</option>
+                                    <option value="urgent">🔴 Urgent</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Timeline Section -->
+                    <div class="space-y-4">
+                        <h4 class="text-lg font-semibold opacity-90" style="color: var(--foreground)">Timeline & Budget</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="form-group-modern">
+                                <label class="form-label-modern">Start Date</label>
+                                <input type="date" name="start_date" class="form-input-modern">
+                            </div>
+
+                            <div class="form-group-modern">
+                                <label class="form-label-modern">Due Date</label>
+                                <input type="date" name="due_date" class="form-input-modern">
+                            </div>
+
+                            <div class="form-group-modern">
+                                <label class="form-label-modern">Estimated Hours</label>
+                                <input type="number" name="estimated_hours" class="form-input-modern" min="0" placeholder="e.g. 40">
+                            </div>
+
+                            <div class="form-group-modern">
+                                <label class="form-label-modern">Budget</label>
+                                <input type="text" name="budget" class="form-input-modern" placeholder="e.g. $10,000">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Details Section -->
+                    <div class="space-y-4">
+                        <h4 class="text-lg font-semibold opacity-90" style="color: var(--foreground)">Project Details</h4>
+
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">Description</label>
+                            <textarea name="description" class="form-textarea-modern" rows="3" placeholder="Describe the project objectives and scope..."></textarea>
+                        </div>
+
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">Tags</label>
+                            <input type="text" name="tags" class="form-input-modern" placeholder="web-development, react, urgent">
+                            <p class="text-xs opacity-70 mt-1" style="color: var(--foreground-secondary)">Separate tags with commas</p>
+                        </div>
+
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">Notes</label>
+                            <textarea name="notes" class="form-textarea-modern" rows="2" placeholder="Additional notes or requirements..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Modal Actions -->
+                    <div class="modal-actions-modern">
+                        <button type="button" class="btn-modern btn-secondary" onclick="document.getElementById('add-project-modal').close()">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-modern btn-primary">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            Create Project
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </dialog>
 </div>

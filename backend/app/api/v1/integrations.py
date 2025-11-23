@@ -622,3 +622,188 @@ async def test_ms365_connection(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to test connection"
         )
+
+
+@router.get("/ms365/health")
+async def check_ms365_health(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+    mcp_client: MCPMicrosoft365Client = Depends(get_mcp_client)
+):
+    """
+    Comprehensive health check for Microsoft 365 integration.
+
+    Returns detailed diagnostic information about:
+    - Integration status and connectivity
+    - Token validation and expiration
+    - MCP server availability
+    - Available tools
+    - Recent error history
+    """
+    try:
+        health_data = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_id": current_user.id,
+            "integration_status": "unknown",
+            "mcp_server_status": "unknown",
+            "token_status": "unknown",
+            "diagnostics": {}
+        }
+
+        # 1. Check if integration exists
+        query = select(Integration).where(
+            and_(
+                Integration.user_id == current_user.id,
+                Integration.service_type == "microsoft365"
+            )
+        )
+        result = await db.execute(query)
+        integration = result.scalar_one_or_none()
+
+        if not integration:
+            health_data["integration_status"] = "not_connected"
+            health_data["diagnostics"]["message"] = "Microsoft 365 not connected"
+            health_data["diagnostics"]["action"] = "Connect Microsoft 365 in Settings"
+            return health_data
+
+        # 2. Check integration status
+        health_data["integration_status"] = "connected" if integration.is_active else "inactive"
+        health_data["diagnostics"]["integration"] = {
+            "id": integration.id,
+            "is_active": integration.is_active,
+            "connected_at": integration.connected_at.isoformat() if integration.connected_at else None,
+            "last_sync": integration.last_sync_at.isoformat() if integration.last_sync_at else None,
+            "sync_status": integration.sync_status
+        }
+
+        # 3. Check token status
+        if not integration.access_token:
+            health_data["token_status"] = "missing"
+            health_data["diagnostics"]["token"] = {
+                "status": "missing",
+                "message": "Access token not found"
+            }
+        elif integration.is_token_expired:
+            health_data["token_status"] = "expired"
+            health_data["diagnostics"]["token"] = {
+                "status": "expired",
+                "expires_at": integration.token_expires_at.isoformat() if integration.token_expires_at else None,
+                "message": "Token has expired",
+                "action": "Attempting automatic refresh..."
+            }
+
+            # Try to refresh the token
+            if integration.refresh_token:
+                try:
+                    new_tokens = await mcp_client.refresh_access_token(
+                        refresh_token=integration.refresh_token,
+                        user_id=str(current_user.id)
+                    )
+
+                    if new_tokens and "access_token" in new_tokens:
+                        integration.access_token = new_tokens["access_token"]
+                        if "refresh_token" in new_tokens:
+                            integration.refresh_token = new_tokens["refresh_token"]
+                        if "expires_at" in new_tokens:
+                            expires_at = new_tokens["expires_at"]
+                            if isinstance(expires_at, str):
+                                integration.token_expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                        await db.commit()
+
+                        health_data["token_status"] = "refreshed"
+                        health_data["diagnostics"]["token"]["status"] = "refreshed"
+                        health_data["diagnostics"]["token"]["new_expires_at"] = integration.token_expires_at.isoformat() if integration.token_expires_at else None
+                    else:
+                        health_data["diagnostics"]["token"]["refresh_failed"] = True
+                except Exception as refresh_error:
+                    health_data["diagnostics"]["token"]["refresh_error"] = str(refresh_error)
+        elif integration.needs_refresh:
+            health_data["token_status"] = "expires_soon"
+            health_data["diagnostics"]["token"] = {
+                "status": "expires_soon",
+                "expires_at": integration.token_expires_at.isoformat() if integration.token_expires_at else None,
+                "message": "Token expires within 1 hour"
+            }
+        else:
+            health_data["token_status"] = "valid"
+            health_data["diagnostics"]["token"] = {
+                "status": "valid",
+                "expires_at": integration.token_expires_at.isoformat() if integration.token_expires_at else None,
+                "expires_in_minutes": int((integration.token_expires_at - datetime.now(timezone.utc)).total_seconds() / 60) if integration.token_expires_at else None
+            }
+
+        # 4. Check MCP server connectivity
+        try:
+            server_healthy = await mcp_client.health_check()
+            health_data["mcp_server_status"] = "healthy" if server_healthy else "unreachable"
+            health_data["diagnostics"]["mcp_server"] = {
+                "status": "healthy" if server_healthy else "unreachable",
+                "url": mcp_client.base_url
+            }
+        except Exception as server_error:
+            health_data["mcp_server_status"] = "error"
+            health_data["diagnostics"]["mcp_server"] = {
+                "status": "error",
+                "error": str(server_error),
+                "url": mcp_client.base_url
+            }
+
+        # 5. Get available tools
+        if health_data["mcp_server_status"] == "healthy" and health_data["token_status"] in ["valid", "refreshed"]:
+            try:
+                available_tools = await mcp_client.get_available_tools()
+                health_data["diagnostics"]["tools"] = {
+                    "count": len(available_tools),
+                    "tools": [tool.get("name") for tool in available_tools]
+                }
+            except Exception as tools_error:
+                health_data["diagnostics"]["tools"] = {
+                    "error": str(tools_error)
+                }
+
+        # 6. Calculate overall health
+        if (health_data["integration_status"] == "connected" and
+            health_data["token_status"] in ["valid", "refreshed", "expires_soon"] and
+            health_data["mcp_server_status"] == "healthy"):
+            health_data["overall_status"] = "healthy"
+            health_data["can_execute_tools"] = True
+        elif health_data["integration_status"] == "not_connected":
+            health_data["overall_status"] = "not_connected"
+            health_data["can_execute_tools"] = False
+        elif health_data["token_status"] in ["expired", "missing"]:
+            health_data["overall_status"] = "authentication_required"
+            health_data["can_execute_tools"] = False
+        elif health_data["mcp_server_status"] != "healthy":
+            health_data["overall_status"] = "server_unavailable"
+            health_data["can_execute_tools"] = False
+        else:
+            health_data["overall_status"] = "degraded"
+            health_data["can_execute_tools"] = False
+
+        # 7. Add recommendations
+        recommendations = []
+        if health_data["integration_status"] == "not_connected":
+            recommendations.append("Connect Microsoft 365 account in Settings")
+        if health_data["token_status"] == "expired":
+            recommendations.append("Refresh token or reconnect Microsoft 365")
+        if health_data["mcp_server_status"] != "healthy":
+            recommendations.append("Check MCP server is running on " + mcp_client.base_url)
+        if health_data["token_status"] == "expires_soon":
+            recommendations.append("Token will expire soon - automatic refresh will occur on next use")
+
+        health_data["recommendations"] = recommendations
+
+        return health_data
+
+    except Exception as e:
+        logger.error(
+            "Health check failed",
+            user_id=current_user.id,
+            error=str(e)
+        )
+        return {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "overall_status": "error",
+            "error": str(e),
+            "can_execute_tools": False
+        }

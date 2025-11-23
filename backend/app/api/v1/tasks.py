@@ -77,7 +77,7 @@ class TaskList(BaseModel):
     total_pages: int
 
 
-@router.get("/")
+@router.get("")
 async def list_tasks(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
@@ -204,7 +204,7 @@ async def list_tasks(
         )
 
 
-@router.post("/", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     task_data: TaskCreate,
     current_user: User = Depends(get_current_active_user),

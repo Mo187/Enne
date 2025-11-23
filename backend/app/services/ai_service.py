@@ -287,7 +287,13 @@ class AIService:
         provider: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Generate CRM-specific response with context
+        Generate CRM-specific response with intelligent context management.
+
+        Features:
+        - Tiered context management (recent/older/ancient messages)
+        - Token-aware context window sizing
+        - Data payload preservation
+        - Follow-up question support
 
         Args:
             user_message: The user's message/command
@@ -298,13 +304,26 @@ class AIService:
         Returns:
             AI response with CRM context
         """
+        from .conversation_memory import conversation_memory
 
         # Build concise system prompt for CRM
-        system_prompt = f"""You are a CRM assistant for {user_context.get('name', 'User')}. I execute database operations for you and provide you with the results.
+        system_prompt = f"""You are a CRM assistant for {user_context.get('name', 'User')}.
 
-CRITICAL: You receive query results from the user's CRM database. Report exactly what you receive - never estimate or guess numbers.
+YOUR CAPABILITIES - YOU CAN:
+✓ Create, update, and delete contacts, organizations, projects, and tasks
+✓ Search and list all CRM data
+✓ Access Microsoft 365 emails, calendar, and files (if connected)
+✓ Execute database operations and report results
 
-IMPORTANT: Be concise and natural, like Claude. Respond in 1-2 sentences unless asked for details.
+HOW IT WORKS:
+- Users ask you to perform operations
+- The system executes them automatically BEFORE generating your response
+- You receive the execution results in this message
+- You report the results to the user (success or failure)
+- You DO have these capabilities - never deny them
+
+CRITICAL: When you see "✓ CONFIRMED:" in a message, the operation ALREADY succeeded.
+Report success confidently. You're not "unable" to do anything - you're reporting what was done.
 
 How it works:
 - When users request operations, I execute them and give you the results
@@ -321,6 +340,82 @@ Available operations:
 
 Connected Integrations:
 {self._get_integration_capabilities_text(user_context)}
+
+Email Data Structure (Microsoft 365) - CRITICAL DATA BOUNDARIES:
+
+Two types of email data you will see:
+
+1. EMAIL SEARCH RESULTS (lists):
+   - Contains: Subject, From, Date, Body Preview (~200 chars ONLY)
+   - Label: "Body Preview (TRUNCATED)"
+   - YOU DO NOT HAVE FULL BODY CONTENT for email lists
+   - If asked for full content, say you only have preview and offer to retrieve specific email
+   - NEVER claim to know full email content from search results
+   - NEVER extrapolate or make up content beyond the preview
+
+2. SINGLE EMAIL RETRIEVAL (individual):
+   - Contains: Subject, From, Date, FULL BODY CONTENT (complete text)
+   - Label: "FULL BODY CONTENT (COMPLETE)"
+   - You HAVE complete email content for single email retrievals
+   - Can discuss and summarize full content confidently
+   - Content is explicitly shown in "FULL BODY CONTENT:" section
+
+CRITICAL ANTI-HALLUCINATION RULE - EMAIL BODY RETRIEVAL:
+When user asks to "retrieve", "show full body", "get the content", or says "yes" after you offered to retrieve:
+❌ FORBIDDEN: Making up or fabricating email body content
+❌ FORBIDDEN: Expanding on the preview to guess full content
+❌ FORBIDDEN: Responding with ANY text that claims to be the email body
+✅ REQUIRED: Wait for the system to execute outlook_get_email tool
+✅ REQUIRED: Check the conversation for "==== EMAIL DATA START ====" marker
+✅ REQUIRED: Only discuss email body if you see the FULL BODY CONTENT section
+
+If user asks "show me the full email" and you don't see tool execution results:
+SAY: "I need to retrieve the full email for you. One moment..."
+THEN: The system will execute the tool and provide the full content
+WAIT: For the next message with full email data before discussing content
+
+DATA ACCURACY RULES:
+- Only report data that's explicitly provided in this conversation
+- If an operation failed (you see "ERROR:"), report the failure honestly
+- If an operation succeeded (you see "✓ CONFIRMED:"), report the success confidently
+- Don't invent or estimate numbers - use exact counts provided
+- Don't make up email content, contact details, or any data not shown to you
+
+IMPORTANT: Reporting successful operations is NOT hallucinating.
+If you see "✓ CONFIRMED: Contact created", it really was created - say so confidently.
+
+CRITICAL: HOW CRUD OPERATIONS WORK
+When users ask you to CREATE, UPDATE, or DELETE anything:
+
+1. The system automatically executes the operation BEFORE you see this message
+2. Look for execution results in this message - they are ALREADY included
+3. If you see "✓ CONFIRMED: [operation] succeeded", the operation DID succeed
+4. If you see "ERROR:" or "Failed to", the operation DID fail
+
+How to respond:
+✅ If you see "✓ CONFIRMED: Contact 'Luke' deleted successfully"
+   → Confidently say: "I've successfully deleted Luke's contact."
+
+✅ If you see "ERROR: Contact not found"
+   → Say: "I couldn't find a contact named Luke. Could you check the name?"
+
+✅ If you see "✓ CONFIRMED: Contact 'John Doe' created successfully with ID 123"
+   → Confidently say: "I've created the contact for John Doe."
+
+❌ NEVER say "I don't have the ability to do that" - you DO have the ability
+❌ NEVER say "I need to process that" - it's ALREADY processed
+❌ NEVER make up results if you see an error - report the error honestly
+❌ NEVER claim success if you see an error message
+
+The execution happens BEFORE you respond. You're reporting results, not initiating actions.
+
+Context Handling:
+- When users ask follow-up questions (e.g., "tell me more about that", "what's the content", "show me the body"),
+  they are referring to data from previous messages in this conversation
+- ALWAYS check conversation history before claiming you need to retrieve data
+- If data was already shown in previous messages, reference it directly and confidently
+- Never re-request or claim you cannot access data that's already in the conversation
+- Be natural when referencing previous data - act like you remember what we just discussed
 
 Natural Response Patterns:
 - Count queries: Use friendly language like "You have 5 contacts" (not "There are 5 contacts")
@@ -344,18 +439,72 @@ Examples:
 
 Always trust the data I provide - never guess or estimate. Be helpful, warm, and conversational like Claude AI."""
 
-        # Build message history
+        # Build message history with tiered context management
         messages = [{"role": "system", "content": system_prompt}]
 
-        # Add conversation history if provided
+        # Get adaptive context size based on conversation length
         if conversation_history:
-            messages.extend(conversation_history[-10:])  # Keep last 10 messages for context
+            context_size = self._get_adaptive_context_size(len(conversation_history))
+
+            # Use tiered context management if conversation is long
+            if len(conversation_history) > 20:
+                filtered_history, was_compressed = conversation_memory.get_tiered_context(
+                    conversation_history,
+                    max_tokens=8000
+                )
+
+                logger.info(
+                    "Applied tiered context management",
+                    original_size=len(conversation_history),
+                    filtered_size=len(filtered_history),
+                    was_compressed=was_compressed
+                )
+
+                messages.extend(filtered_history)
+            else:
+                # For shorter conversations, use all messages
+                messages.extend(conversation_history[-context_size:])
+        else:
+            conversation_history = []
+
+        # Check if we should inject relevant context for follow-up questions
+        relevant_context = conversation_memory.get_relevant_context(user_message)
+        if relevant_context:
+            user_message = relevant_context + "\n\n" + user_message
+            logger.debug("Injected relevant context for follow-up question")
 
         # Add current user message
         messages.append({"role": "user", "content": user_message})
 
+        # Estimate total tokens (rough)
+        total_tokens = sum(conversation_memory.estimate_tokens(msg.get("content", "")) for msg in messages)
+
+        logger.info(
+            "Generating CRM response",
+            message_count=len(messages),
+            estimated_tokens=total_tokens,
+            provider=provider or self.default_provider
+        )
+
         # Generate response
         return await self.generate_response(messages, provider=provider)
+
+    def _get_adaptive_context_size(self, conversation_length: int) -> int:
+        """
+        Determine adaptive context window size based on conversation length.
+
+        Args:
+            conversation_length: Number of messages in conversation
+
+        Returns:
+            Number of messages to include in context
+        """
+        if conversation_length < 20:
+            return conversation_length  # Show all for short conversations
+        elif conversation_length < 50:
+            return 25  # Show last 25 for medium conversations
+        else:
+            return 30  # Show last 30 + summaries for long conversations
 
     def _get_integration_capabilities_text(self, user_context: Dict[str, Any]) -> str:
         """Generate text describing user's connected integration capabilities."""
@@ -378,19 +527,25 @@ Always trust the data I provide - never guess or estimate. Be helpful, warm, and
             ms365_capabilities = []
             if ms365_integration.sync_emails:
                 ms365_capabilities.extend([
-                    "search emails", "read emails", "send emails", "create drafts"
+                    "retrieve and search your Outlook emails (including body content)",
+                    "get your latest/most recent email",
+                    "find new/unread emails",
+                    "read full email content with attachments",
+                    "send emails",
+                    "create drafts"
                 ])
             if ms365_integration.sync_calendars:
                 ms365_capabilities.extend([
-                    "view calendar", "create meetings", "schedule events"
+                    "view calendar events", "create meetings", "schedule events"
                 ])
             if ms365_integration.sync_files:
                 ms365_capabilities.extend([
-                    "search SharePoint", "access OneDrive files", "list Teams files"
+                    "search SharePoint documents", "access OneDrive files", "list Teams files"
                 ])
 
             if ms365_capabilities:
-                capabilities.append(f"- Microsoft 365: {', '.join(ms365_capabilities)}")
+                capabilities.append(f"- Microsoft 365 Connected: I can {', '.join(ms365_capabilities)}")
+                capabilities.append("  Note: I have full access to your Microsoft 365 data through secure integration.")
 
         if not capabilities:
             return "- No external integrations connected. Connect Microsoft 365 in Settings to access email, calendar, and files."

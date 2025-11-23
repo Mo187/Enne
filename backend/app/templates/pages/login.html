@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,95 +13,311 @@
 
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.9"></script>
+
+    <!-- Alpine.js for theme management -->
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <!-- CSS Variables and Modern Styling -->
+    <link rel="stylesheet" href="/static/css/modern.css">
+
+    <!-- Theme Management Script -->
+    <script>
+        // Theme management - sync with base.html
+        const themeData = {
+            currentTheme: localStorage.getItem('theme') || 'light',
+
+            toggleTheme() {
+                this.currentTheme = this.currentTheme === 'light' ? 'dark' : 'light';
+                localStorage.setItem('theme', this.currentTheme);
+                document.documentElement.setAttribute('data-theme', this.currentTheme);
+            },
+
+            init() {
+                document.documentElement.setAttribute('data-theme', this.currentTheme);
+            }
+        };
+
+        // Initialize theme on load
+        document.addEventListener('DOMContentLoaded', function() {
+            const theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+        });
+    </script>
+
+    <style>
+        [x-cloak] { display: none !important; }
+
+        /* Auth page specific styling */
+        .auth-container {
+            min-height: 100vh;
+            background: linear-gradient(135deg,
+                rgba(59, 130, 246, 0.1) 0%,
+                rgba(139, 92, 246, 0.1) 50%,
+                rgba(236, 72, 153, 0.1) 100%),
+                var(--background);
+            position: relative;
+            overflow: hidden;
+        }
+
+        [data-theme="dark"] .auth-container {
+            background: linear-gradient(135deg,
+                rgba(59, 130, 246, 0.05) 0%,
+                rgba(139, 92, 246, 0.05) 50%,
+                rgba(236, 72, 153, 0.05) 100%),
+                var(--background);
+        }
+
+        .auth-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 20% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.1) 0%, transparent 50%),
+                radial-gradient(circle at 40% 40%, rgba(236, 72, 153, 0.05) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .auth-card {
+            background: linear-gradient(135deg,
+                rgba(255, 255, 255, 0.25) 0%,
+                rgba(255, 255, 255, 0.15) 100%),
+                var(--card);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 32px;
+            backdrop-filter: blur(20px);
+            box-shadow:
+                0 32px 64px rgba(0, 0, 0, 0.15),
+                0 16px 32px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 10;
+        }
+
+        [data-theme="dark"] .auth-card {
+            background: linear-gradient(135deg,
+                rgba(20, 20, 20, 0.9) 0%,
+                rgba(40, 40, 40, 0.8) 100%);
+            border-color: rgba(255, 255, 255, 0.1);
+            box-shadow:
+                0 32px 64px rgba(0, 0, 0, 0.4),
+                0 16px 32px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        }
+
+        .auth-card:hover {
+            transform: translateY(-4px);
+            box-shadow:
+                0 40px 80px rgba(0, 0, 0, 0.2),
+                0 20px 40px rgba(0, 0, 0, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        }
+
+        .logo-badge {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            border-radius: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            box-shadow:
+                0 8px 25px rgba(59, 130, 246, 0.3),
+                0 3px 8px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .logo-badge::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent);
+            border-radius: inherit;
+        }
+
+        .theme-toggle-auth {
+            position: absolute;
+            top: 32px;
+            right: 32px;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 16px;
+            width: 56px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--foreground);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+            z-index: 20;
+        }
+
+        .theme-toggle-auth:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: scale(1.1);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        [data-theme="dark"] .theme-toggle-auth {
+            background: rgba(20, 20, 20, 0.8);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .loading-dots {
+            display: inline-flex;
+            gap: 4px;
+        }
+
+        .loading-dots span {
+            width: 6px;
+            height: 6px;
+            background: currentColor;
+            border-radius: 50%;
+            animation: loadingDots 1.4s ease-in-out infinite both;
+        }
+
+        .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes loadingDots {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+    </style>
 </head>
-<body class="bg-base-200 min-h-screen flex items-center justify-center">
-    <!-- Login Container -->
-    <div class="card w-full max-w-md bg-base-100 shadow-xl">
-        <div class="card-body">
+
+<body x-data="themeData" x-init="init()" class="auth-container" x-cloak>
+    <!-- Theme Toggle Button -->
+    <button @click="toggleTheme()" class="theme-toggle-auth group" title="Toggle theme">
+        <svg x-show="currentTheme === 'light'" class="w-6 h-6 transition-transform group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+        </svg>
+        <svg x-show="currentTheme === 'dark'" class="w-6 h-6 transition-transform group-hover:rotate-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+        </svg>
+    </button>
+
+    <!-- Main Content -->
+    <div class="flex items-center justify-center min-h-screen p-6">
+        <div class="auth-card w-full max-w-md p-8">
             <!-- Logo and Title -->
             <div class="text-center mb-6">
-                <div class="w-16 h-16 bg-primary rounded-full flex items-center justify-center mx-auto mb-4">
-                    <span class="text-primary-content font-bold text-2xl">C</span>
+                <div class="logo-badge">
+                    <!-- <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                    </svg> -->
+                     <img
+                            src="/static/images/enne.svg"
+                            alt="Enne Logo"
+                            class="w-full h-full object-contain transition-all duration-300"
+                            onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
+                        >
                 </div>
-                <h1 class="text-3xl font-bold">Welcome Back</h1>
-                <p class="text-base-content/70">Sign in to your AI-Assisted CRM</p>
+                <h1 class="text-4xl font-bold text-gradient mb-3">Welcome Back</h1>
+                <p class="text-lg opacity-80" style="color: var(--foreground-secondary)">
+                    Sign in to Enne! ✨
+                </p>
             </div>
 
             <!-- Login Form -->
             <form id="login-form" class="space-y-4">
                 <!-- Error Message -->
-                <div id="error-message" class="alert alert-error hidden">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <div id="error-message" class="error-alert-modern hidden">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                     </svg>
                     <span id="error-text">Invalid email or password</span>
                 </div>
 
                 <!-- Email Field -->
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">Email Address</span>
-                    </label>
+                <div class="form-group-modern">
+                    <label class="form-label-modern">Email Address</label>
                     <input
                         type="email"
                         id="email"
                         name="email"
                         placeholder="Enter your email"
-                        class="input input-bordered w-full"
+                        class="form-input-modern"
                         required
                         autocomplete="email"
                     >
                 </div>
 
                 <!-- Password Field -->
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text">Password</span>
-                    </label>
+                <div class="form-group-modern">
+                    <label class="form-label-modern">Password</label>
                     <input
                         type="password"
                         id="password"
                         name="password"
                         placeholder="Enter your password"
-                        class="input input-bordered w-full"
+                        class="form-input-modern"
                         required
                         autocomplete="current-password"
                     >
                 </div>
 
                 <!-- Remember Me -->
-                <div class="form-control">
-                    <label class="label cursor-pointer justify-start">
-                        <input type="checkbox" class="checkbox checkbox-primary mr-3" id="remember">
-                        <span class="label-text">Remember me</span>
+                <div class="flex items-center justify-between">
+                    <label class="flex items-center space-x-3 cursor-pointer">
+                        <input type="checkbox" class="checkbox-modern" id="remember">
+                        <span class="text-sm" style="color: var(--foreground)">Remember me</span>
                     </label>
+                    <a href="#" class="text-sm text-primary hover:opacity-80 transition-opacity">
+                        Forgot password?
+                    </a>
                 </div>
 
                 <!-- Login Button -->
                 <button
                     type="submit"
-                    class="btn btn-primary w-full"
+                    class="btn-modern btn-primary w-full group"
                     id="login-btn"
                 >
-                    <span class="loading loading-spinner loading-sm hidden" id="login-spinner"></span>
                     <span id="login-text">Sign In</span>
+                    <div id="login-spinner" class="loading-dots hidden">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                    <svg class="w-5 h-5 ml-2 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"></path>
+                    </svg>
                 </button>
             </form>
 
             <!-- Divider -->
-            <div class="divider">New to Enne?</div>
+            <div class="flex items-center my-8">
+                <div class="flex-1 h-px bg-gradient-to-r from-transparent via-current to-transparent opacity-20"></div>
+                <span class="px-4 text-sm opacity-60" style="color: var(--foreground-secondary)">New to Enne?</span>
+                <div class="flex-1 h-px bg-gradient-to-r from-transparent via-current to-transparent opacity-20"></div>
+            </div>
 
             <!-- Register Link -->
-            <div class="text-center">
-                <a href="/register" class="btn btn-outline btn-secondary w-full">
-                    Create Account
-                </a>
-            </div>
-
-            <!-- Forgot Password -->
-            <div class="text-center mt-4">
-                <a href="#" class="link link-primary text-sm">Forgot your password?</a>
-            </div>
+            <a href="/register" class="btn-modern btn-secondary w-full group">
+                <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"></path>
+                </svg>
+                Create Account
+            </a>
         </div>
     </div>
 
@@ -119,7 +335,7 @@
             // Show loading state
             submitBtn.disabled = true;
             spinner.classList.remove('hidden');
-            loginText.textContent = 'Signing in...';
+            loginText.textContent = 'Signing in';
             errorMessage.classList.add('hidden');
 
             // Get form data
@@ -141,7 +357,7 @@
                     localStorage.setItem('user_data', JSON.stringify(data.user));
 
                     // Show success and redirect
-                    loginText.textContent = 'Success! Redirecting...';
+                    loginText.textContent = 'Success! Redirecting';
                     setTimeout(() => {
                         window.location.href = '/';
                     }, 1000);
@@ -167,14 +383,41 @@
             }
         });
 
-        // Check if already logged in
-        const token = localStorage.getItem('access_token');
-        if (token) {
-            window.location.href = '/';
+        // Check if already logged in with valid token
+        async function checkExistingAuth() {
+            const token = localStorage.getItem('access_token');
+            if (token) {
+                try {
+                    // Validate token by making API call
+                    const response = await fetch('/api/v1/auth/me', {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        // Token is valid, redirect to dashboard
+                        window.location.href = '/';
+                    } else {
+                        // Token is invalid, remove it
+                        localStorage.removeItem('access_token');
+                        localStorage.removeItem('user_data');
+                    }
+                } catch (error) {
+                    // Network error or token invalid, remove it
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('user_data');
+                }
+            }
         }
 
-        // Focus on email field
-        document.getElementById('email').focus();
+        // Check auth on page load
+        checkExistingAuth();
+
+        // Focus on email field after a short delay
+        setTimeout(() => {
+            document.getElementById('email').focus();
+        }, 300);
     </script>
 </body>
 </html>

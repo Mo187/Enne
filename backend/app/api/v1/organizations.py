@@ -114,7 +114,7 @@ class OrganizationStats(BaseModel):
     by_company_size: dict
 
 
-@router.get("/")
+@router.get("")
 async def list_organizations(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
@@ -235,7 +235,7 @@ async def list_organizations(
         )
 
 
-@router.post("/", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
 async def create_organization(
     org_data: OrganizationCreate,
     current_user: User = Depends(get_current_active_user),

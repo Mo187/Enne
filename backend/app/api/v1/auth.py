@@ -1,5 +1,5 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -66,6 +66,7 @@ class PasswordReset(BaseModel):
 
 @router.post("/register", response_model=Token)
 async def register(
+    response: Response,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
@@ -109,6 +110,16 @@ async def register(
         subject=db_user.id, expires_delta=access_token_expires
     )
 
+    # Set HTTP-only cookie for server-side authentication
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=settings.access_token_expire_minutes * 60,
+        samesite="lax",
+        secure=False  # Set to True in production with HTTPS
+    )
+
     # TODO: Send verification email
     # verification_token = generate_email_verification_token(db_user.email)
     # send_verification_email(db_user.email, verification_token)
@@ -122,6 +133,7 @@ async def register(
 
 @router.post("/login", response_model=Token)
 async def login(
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
@@ -150,11 +162,28 @@ async def login(
         subject=user.id, expires_delta=access_token_expires
     )
 
+    # Set HTTP-only cookie for server-side authentication
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=settings.access_token_expire_minutes * 60,
+        samesite="lax",
+        secure=False  # Set to True in production with HTTPS
+    )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user": UserResponse.model_validate(user)
     }
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Logout user by clearing authentication cookie"""
+    response.delete_cookie(key="access_token")
+    return {"message": "Successfully logged out"}
 
 
 @router.get("/me", response_model=UserResponse)

@@ -3,7 +3,7 @@
 {% block title %}Dashboard - AI-Assisted CRM{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
 
-{% block extra_js %}
+{% block js %}
 <script>
 // Check authentication before loading dashboard
 document.addEventListener('DOMContentLoaded', function() {
@@ -11,178 +11,499 @@ document.addEventListener('DOMContentLoaded', function() {
     const userData = localStorage.getItem('user_data');
 
     if (!token || !userData) {
-        // No authentication data, redirect to login
         window.location.href = '/login';
         return;
     }
 
-    // Verify token is still valid by making a test API call
     fetch('/api/v1/auth/me', {
         method: 'GET',
-        headers: {
-            'Authorization': 'Bearer ' + token
-        }
-    })
-    .then(response => {
+        headers: {'Authorization': 'Bearer ' + token}
+    }).then(response => {
         if (response.status === 401 || response.status === 403) {
-            // Token is invalid, clear storage and redirect
             localStorage.removeItem('access_token');
             localStorage.removeItem('user_data');
             window.location.href = '/login';
+        } else {
+            // Load dashboard data
+            loadDashboardStats();
         }
-    })
-    .catch(error => {
-        console.log('Token verification failed, assuming valid');
-    });
+    }).catch(error => console.log('Token verification failed, assuming valid'));
 });
+
+// Load dashboard statistics
+async function loadDashboardStats() {
+    const token = localStorage.getItem('access_token');
+
+    try {
+        // Load contacts count
+        const contactsRes = await fetch('/api/v1/contacts?limit=1', {
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+        if (contactsRes.ok) {
+            const contactsData = await contactsRes.json();
+            document.getElementById('contacts-count').textContent = contactsData.total || 0;
+        }
+
+        // Load organizations count
+        const orgsRes = await fetch('/api/v1/organizations?limit=1', {
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+        if (orgsRes.ok) {
+            const orgsData = await orgsRes.json();
+            document.getElementById('organizations-count').textContent = orgsData.total || 0;
+        }
+
+        // Load projects count
+        const projectsRes = await fetch('/api/v1/projects?limit=1', {
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+        if (projectsRes.ok) {
+            const projectsData = await projectsRes.json();
+            const activeProjects = projectsData.total || 0;
+            document.getElementById('projects-count').textContent = activeProjects;
+        }
+
+        // Load tasks count
+        const tasksRes = await fetch('/api/v1/tasks?limit=1', {
+            headers: {'Authorization': 'Bearer ' + token}
+        });
+        if (tasksRes.ok) {
+            const tasksData = await tasksRes.json();
+            document.getElementById('tasks-count').textContent = tasksData.total || 0;
+        }
+    } catch (error) {
+        console.error('Error loading dashboard stats:', error);
+    }
+}
 </script>
 {% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-    <!-- Welcome Section -->
-    <div class="hero bg-gradient-to-r from-primary to-secondary text-primary-content rounded-lg">
-        <div class="hero-content text-center py-12">
-            <div class="max-w-md">
-                <h1 class="text-5xl font-bold">Welcome!</h1>
-                <p class="py-6">Enne is your AI-powered CRM. Ready to help you manage contacts, projects, and grow your business efficiently?</p>
-                <a href="/assistant" class="btn btn-accent">Start with the Assistant</a>
-            </div>
+<div class="space-y-8">
+    <!-- Welcome Hero Section -->
+    <div class="relative overflow-hidden rounded-3xl p-12" style="
+        background: linear-gradient(135deg,
+            rgba(59, 130, 246, 0.15) 0%,
+            rgba(147, 51, 234, 0.15) 50%,
+            rgba(236, 72, 153, 0.15) 100%),
+            var(--card);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow:
+            0 20px 60px rgba(0, 0, 0, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    ">
+        <div class="relative z-10 text-center max-w-3xl mx-auto">
+            <h1 class="text-5xl md:text-6xl font-bold mb-6 text-gradient">
+                Welcome to Enne! ✨
+            </h1>
+            <p class="text-xl mb-8 opacity-90" style="color: var(--foreground-secondary)">
+                Your AI-powered CRM assistant is ready to help you manage contacts, projects, and grow your business efficiently.
+            </p>
+            <a href="/assistant" class="btn-modern btn-primary group inline-flex items-center">
+                <svg class="w-5 h-5 mr-2 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                </svg>
+                Start with AI Assistant
+            </a>
         </div>
+
+        <!-- Decorative elements -->
+        <div class="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-full blur-3xl"></div>
+        <div class="absolute bottom-0 left-0 w-64 h-64 bg-gradient-to-tr from-pink-500/10 to-blue-500/10 rounded-full blur-3xl"></div>
     </div>
 
-    <!-- Quick Stats -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div class="stat bg-base-200 rounded-lg">
-            <div class="stat-figure text-primary">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"></path>
-                </svg>
-            </div>
-            <div class="stat-title">Contacts</div>
-            <div class="stat-value text-primary">0</div>
-            <div class="stat-desc">Ready to add your first contact</div>
-        </div>
-
-        <div class="stat bg-base-200 rounded-lg">
-            <div class="stat-figure text-secondary">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
-                </svg>
-            </div>
-            <div class="stat-title">Organizations</div>
-            <div class="stat-value text-secondary">0</div>
-            <div class="stat-desc">Track companies you work with</div>
-        </div>
-
-        <div class="stat bg-base-200 rounded-lg">
-            <div class="stat-figure text-accent">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-                </svg>
-            </div>
-            <div class="stat-title">Active Projects</div>
-            <div class="stat-value text-accent">0</div>
-            <div class="stat-desc">Projects in progress</div>
-        </div>
-
-        <div class="stat bg-base-200 rounded-lg">
-            <div class="stat-figure text-warning">
-                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
-                </svg>
-            </div>
-            <div class="stat-title">Pending Tasks</div>
-            <div class="stat-value text-warning">0</div>
-            <div class="stat-desc">Tasks awaiting completion</div>
-        </div>
-    </div>
-
-    <!-- Quick Actions -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- AI Assistant Chat Preview -->
-        <div class="card bg-base-200 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title">
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <!-- Contacts Stat -->
+        <div class="stat-card-modern group">
+            <div class="flex items-start justify-between mb-4">
+                <div class="icon-badge-modern" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6);">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                    </svg>
+                </div>
+                <a href="/contacts" class="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </a>
+            </div>
+            <div class="space-y-2">
+                <p class="text-sm font-medium opacity-70" style="color: var(--foreground-secondary)">Contacts</p>
+                <p class="text-4xl font-bold text-gradient" id="contacts-count">
+                    <span class="loading-spinner-inline"></span>
+                </p>
+                <p class="text-xs opacity-60" style="color: var(--foreground-secondary)">Total connections</p>
+            </div>
+        </div>
+
+        <!-- Organizations Stat -->
+        <div class="stat-card-modern group">
+            <div class="flex items-start justify-between mb-4">
+                <div class="icon-badge-modern" style="background: linear-gradient(135deg, #8b5cf6, #ec4899);">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                    </svg>
+                </div>
+                <a href="/organizations" class="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </a>
+            </div>
+            <div class="space-y-2">
+                <p class="text-sm font-medium opacity-70" style="color: var(--foreground-secondary)">Organizations</p>
+                <p class="text-4xl font-bold text-gradient" id="organizations-count">
+                    <span class="loading-spinner-inline"></span>
+                </p>
+                <p class="text-xs opacity-60" style="color: var(--foreground-secondary)">Companies tracked</p>
+            </div>
+        </div>
+
+        <!-- Projects Stat -->
+        <div class="stat-card-modern group">
+            <div class="flex items-start justify-between mb-4">
+                <div class="icon-badge-modern" style="background: linear-gradient(135deg, #ec4899, #f97316);">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                    </svg>
+                </div>
+                <a href="/projects" class="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </a>
+            </div>
+            <div class="space-y-2">
+                <p class="text-sm font-medium opacity-70" style="color: var(--foreground-secondary)">Active Projects</p>
+                <p class="text-4xl font-bold text-gradient" id="projects-count">
+                    <span class="loading-spinner-inline"></span>
+                </p>
+                <p class="text-xs opacity-60" style="color: var(--foreground-secondary)">In progress</p>
+            </div>
+        </div>
+
+        <!-- Tasks Stat -->
+        <div class="stat-card-modern group">
+            <div class="flex items-start justify-between mb-4">
+                <div class="icon-badge-modern" style="background: linear-gradient(135deg, #f97316, #eab308);">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
+                    </svg>
+                </div>
+                <a href="/tasks" class="opacity-0 group-hover:opacity-100 transition-opacity">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+                    </svg>
+                </a>
+            </div>
+            <div class="space-y-2">
+                <p class="text-sm font-medium opacity-70" style="color: var(--foreground-secondary)">Tasks</p>
+                <p class="text-4xl font-bold text-gradient" id="tasks-count">
+                    <span class="loading-spinner-inline"></span>
+                </p>
+                <p class="text-xs opacity-60" style="color: var(--foreground-secondary)">Awaiting completion</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- AI Assistant Preview -->
+        <div class="dashboard-card-modern">
+            <div class="flex items-center space-x-3 mb-6">
+                <div class="icon-badge-modern">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
                     </svg>
-                    Assistant
-                </h2>
-                <p>Get help with managing your CRM data using natural language commands.</p>
-                <div class="mockup-code">
-                    <pre data-prefix=">" class="text-success"><code>Add contact John Doe from Acme Corp</code></pre>
-                    <pre data-prefix=">" class="text-warning"><code>Create project for Q1 marketing</code></pre>
-                    <pre data-prefix=">" class="text-info"><code>Show me overdue tasks</code></pre>
                 </div>
-                <div class="card-actions justify-end">
-                    <a href="/assistant" class="btn btn-primary">Open Chat</a>
+                <h2 class="text-2xl font-bold text-gradient">AI Assistant</h2>
+            </div>
+
+            <p class="mb-6 opacity-80" style="color: var(--foreground-secondary)">
+                Get help with managing your CRM data using natural language commands.
+            </p>
+
+            <!-- Command Examples -->
+            <div class="space-y-3 mb-6">
+                <div class="command-example">
+                    <span class="command-prompt">▸</span>
+                    <span class="command-text">Add contact John Doe from Acme Corp</span>
+                </div>
+                <div class="command-example">
+                    <span class="command-prompt">▸</span>
+                    <span class="command-text">Create project for Q1 marketing campaign</span>
+                </div>
+                <div class="command-example">
+                    <span class="command-prompt">▸</span>
+                    <span class="command-text">Show me all overdue tasks</span>
                 </div>
             </div>
+
+            <a href="/assistant" class="btn-modern btn-primary w-full group">
+                <svg class="w-5 h-5 mr-2 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                </svg>
+                Open AI Chat
+            </a>
         </div>
 
         <!-- Recent Activity -->
-        <div class="card bg-base-200 shadow-xl">
-            <div class="card-body">
-                <h2 class="card-title">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div class="dashboard-card-modern">
+            <div class="flex items-center space-x-3 mb-6">
+                <div class="icon-badge-modern">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                     </svg>
-                    Recent Activity
-                </h2>
-                <div class="space-y-3">
-                    <div class="alert alert-info">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                </div>
+                <h2 class="text-2xl font-bold text-gradient">Recent Activity</h2>
+            </div>
+
+            <div class="activity-feed">
+                <div class="activity-item">
+                    <div class="activity-icon" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6);">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                         </svg>
-                        <span>Welcome to Enne! Start by adding your first contact.</span>
                     </div>
-                    <div class="text-center py-8 text-base-content/60">
-                        <p>No recent activity yet. Your activities will appear here as you use the system.</p>
+                    <div class="activity-content">
+                        <p class="font-medium" style="color: var(--foreground)">Welcome to Enne!</p>
+                        <p class="text-sm opacity-70" style="color: var(--foreground-secondary)">
+                            Start by adding your first contact or organization.
+                        </p>
+                        <p class="text-xs opacity-50 mt-1" style="color: var(--foreground-secondary)">Just now</p>
                     </div>
+                </div>
+
+                <div class="text-center py-12 opacity-60">
+                    <svg class="w-12 h-12 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                    </svg>
+                    <p class="text-sm" style="color: var(--foreground-secondary)">
+                        Your recent activities will appear here
+                    </p>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Quick Start Guide -->
-    <div class="card bg-base-200 shadow-xl">
-        <div class="card-body">
-            <h2 class="card-title">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+    <!-- Getting Started Guide -->
+    <div class="dashboard-card-modern">
+        <div class="flex items-center space-x-3 mb-8">
+            <div class="icon-badge-modern">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                 </svg>
-                Getting Started
-            </h2>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                <div class="flex flex-col items-center text-center p-4 border border-base-300 rounded-lg">
-                    <div class="w-12 h-12 bg-primary rounded-full flex items-center justify-center mb-3">
-                        <span class="text-primary-content font-bold">1</span>
-                    </div>
-                    <h3 class="font-semibold mb-2">Add Contacts</h3>
-                    <p class="text-sm text-base-content/70">Start by adding people you work with</p>
-                    <a href="/contacts" class="btn btn-sm btn-primary mt-3">Go to Contacts</a>
-                </div>
+            </div>
+            <h2 class="text-2xl font-bold text-gradient">Quick Start Guide</h2>
+        </div>
 
-                <div class="flex flex-col items-center text-center p-4 border border-base-300 rounded-lg">
-                    <div class="w-12 h-12 bg-secondary rounded-full flex items-center justify-center mb-3">
-                        <span class="text-secondary-content font-bold">2</span>
-                    </div>
-                    <h3 class="font-semibold mb-2">Create Projects</h3>
-                    <p class="text-sm text-base-content/70">Organize your work into projects</p>
-                    <a href="/projects" class="btn btn-sm btn-secondary mt-3">Go to Projects</a>
-                </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Step 1 -->
+            <div class="getting-started-card group">
+                <div class="step-number">1</div>
+                <h3 class="text-lg font-semibold mb-2" style="color: var(--foreground)">Add Contacts</h3>
+                <p class="text-sm mb-4 opacity-70" style="color: var(--foreground-secondary)">
+                    Start building your network by adding people you work with
+                </p>
+                <a href="/contacts" class="btn-modern btn-secondary btn-sm group-hover:scale-105 transition-transform">
+                    Go to Contacts →
+                </a>
+            </div>
 
-                <div class="flex flex-col items-center text-center p-4 border border-base-300 rounded-lg">
-                    <div class="w-12 h-12 bg-accent rounded-full flex items-center justify-center mb-3">
-                        <span class="text-accent-content font-bold">3</span>
-                    </div>
-                    <h3 class="font-semibold mb-2">Use AI Assistant</h3>
-                    <p class="text-sm text-base-content/70">Let AI help you manage everything</p>
-                    <a href="/assistant" class="btn btn-sm btn-accent mt-3">Try Assistant</a>
-                </div>
+            <!-- Step 2 -->
+            <div class="getting-started-card group">
+                <div class="step-number" style="background: linear-gradient(135deg, #8b5cf6, #ec4899);">2</div>
+                <h3 class="text-lg font-semibold mb-2" style="color: var(--foreground)">Create Projects</h3>
+                <p class="text-sm mb-4 opacity-70" style="color: var(--foreground-secondary)">
+                    Organize your work into manageable projects with tasks
+                </p>
+                <a href="/projects" class="btn-modern btn-secondary btn-sm group-hover:scale-105 transition-transform">
+                    Go to Projects →
+                </a>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="getting-started-card group">
+                <div class="step-number" style="background: linear-gradient(135deg, #ec4899, #f97316);">3</div>
+                <h3 class="text-lg font-semibold mb-2" style="color: var(--foreground)">Use AI Assistant</h3>
+                <p class="text-sm mb-4 opacity-70" style="color: var(--foreground-secondary)">
+                    Let AI help you manage everything with natural language
+                </p>
+                <a href="/assistant" class="btn-modern btn-secondary btn-sm group-hover:scale-105 transition-transform">
+                    Try Assistant →
+                </a>
             </div>
         </div>
     </div>
 </div>
+
+<style>
+/* Dashboard-specific styles */
+.stat-card-modern {
+    background: linear-gradient(135deg,
+        rgba(255, 255, 255, 0.15) 0%,
+        rgba(255, 255, 255, 0.05) 100%),
+        var(--card);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 20px;
+    padding: 24px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow:
+        0 10px 40px rgba(0, 0, 0, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.stat-card-modern:hover {
+    transform: translateY(-4px);
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dashboard-card-modern {
+    background: linear-gradient(135deg,
+        rgba(255, 255, 255, 0.15) 0%,
+        rgba(255, 255, 255, 0.05) 100%),
+        var(--card);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    padding: 32px;
+    box-shadow:
+        0 10px 40px rgba(0, 0, 0, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.command-example {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(59, 130, 246, 0.05);
+    border: 1px solid rgba(59, 130, 246, 0.1);
+    border-radius: 12px;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+    transition: all 0.2s ease;
+}
+
+.command-example:hover {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.2);
+    transform: translateX(4px);
+}
+
+.command-prompt {
+    color: var(--primary);
+    font-weight: bold;
+    font-size: 1.2em;
+}
+
+.command-text {
+    color: var(--foreground-secondary);
+    font-size: 0.9em;
+}
+
+.activity-feed {
+    space-y: 4;
+}
+
+.activity-item {
+    display: flex;
+    gap: 16px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    transition: all 0.2s ease;
+}
+
+.activity-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+.activity-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    flex-shrink: 0;
+}
+
+.activity-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.getting-started-card {
+    padding: 24px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.getting-started-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+}
+
+.step-number {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 16px;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 1.5em;
+    font-weight: bold;
+    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+}
+
+.loading-spinner-inline {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(59, 130, 246, 0.2);
+    border-left-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+[data-theme="dark"] .stat-card-modern,
+[data-theme="dark"] .dashboard-card-modern {
+    background: linear-gradient(135deg,
+        rgba(20, 20, 20, 0.8) 0%,
+        rgba(30, 30, 30, 0.6) 100%),
+        var(--card);
+}
+
+[data-theme="dark"] .command-example {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+[data-theme="dark"] .activity-item {
+    background: rgba(20, 20, 20, 0.5);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .getting-started-card {
+    background: rgba(20, 20, 20, 0.5);
+    border-color: rgba(255, 255, 255, 0.1);
+}
+</style>
 {% endblock %}

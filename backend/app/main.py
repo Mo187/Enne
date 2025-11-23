@@ -1,15 +1,22 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import RedirectResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
+from typing import Optional
 import structlog
 import time
 
 from .core.config import settings
-from .core.database import create_tables
+from .core.database import create_tables, get_db
 from .core.startup import initialize_mcp_integrations, cleanup_mcp_integrations
+from .core.security import verify_token
+from .models.user import User
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 
 # Configure structured logging
@@ -32,6 +39,53 @@ structlog.configure(
 )
 
 logger = structlog.get_logger()
+
+# Security scheme for page authentication
+security_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_current_user_from_request(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme)
+) -> Optional[User]:
+    """
+    Get current user from request for page routes.
+    Checks Authorization header (for API-like requests) or falls back to cookie.
+    Returns None if not authenticated instead of raising exception.
+    """
+    token = None
+
+    # Try to get token from Authorization header
+    if credentials:
+        token = credentials.credentials
+    # Fallback: try to get from cookie
+    elif "access_token" in request.cookies:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        return None
+
+    # Verify token
+    user_id = verify_token(token)
+    if user_id is None:
+        return None
+
+    # Get user from database
+    try:
+        result = await db.execute(
+            select(User).where(User.id == int(user_id))
+        )
+        user = result.scalar_one_or_none()
+
+        if user and user.is_active:
+            return user
+    except Exception as e:
+        logger.error("Error fetching user", error=str(e), user_id=user_id)
+
+    return None
+
+
 
 
 @asynccontextmanager
@@ -118,21 +172,28 @@ async def health_check():
 
 # Root endpoint - serve the main application
 @app.get("/")
-async def root(request: Request):
+async def root(request: Request, user: Optional[User] = Depends(get_current_user_from_request)):
     """Root endpoint serving the main dashboard"""
+    # Require authentication for dashboard
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "pages/dashboard.html",
-        {"request": request, "title": "Dashboard"}
+        {"request": request, "title": "Dashboard", "user": user}
     )
 
 
 # AI Assistant page
 @app.get("/assistant")
-async def assistant_page(request: Request):
+async def assistant_page(request: Request, user: Optional[User] = Depends(get_current_user_from_request)):
     """AI Assistant chat interface"""
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "pages/assistant.html",
-        {"request": request, "title": "AI Assistant"}
+        {"request": request, "title": "AI Assistant", "user": user}
     )
 
 
@@ -157,65 +218,82 @@ async def register_page(request: Request):
 
 @app.get("/logout")
 async def logout_page(request: Request):
-    """Logout endpoint - just redirects to login"""
-    return templates.TemplateResponse(
-        "pages/login.html",
-        {"request": request, "title": "Login", "logout": True}
-    )
+    """Logout endpoint - clears cookie and redirects to login"""
+    response = RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+    response.delete_cookie(key="access_token")
+    return response
 
 
 # Protected pages
 @app.get("/contacts")
-async def contacts_page(request: Request):
+async def contacts_page(request: Request, user: Optional[User] = Depends(get_current_user_from_request)):
     """Contacts management page"""
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "pages/contacts.html",
-        {"request": request, "title": "Contacts"}
+        {"request": request, "title": "Contacts", "user": user}
     )
 
 
 @app.get("/organizations")
-async def organizations_page(request: Request):
+async def organizations_page(request: Request, user: Optional[User] = Depends(get_current_user_from_request)):
     """Organizations management page"""
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "pages/organizations.html",
-        {"request": request, "title": "Organizations"}
+        {"request": request, "title": "Organizations", "user": user}
     )
 
 
 @app.get("/projects")
-async def projects_page(request: Request):
+async def projects_page(request: Request, user: Optional[User] = Depends(get_current_user_from_request)):
     """Projects management page"""
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "pages/projects.html",
-        {"request": request, "title": "Projects"}
+        {"request": request, "title": "Projects", "user": user}
     )
 
 
 @app.get("/tasks")
-async def tasks_page(request: Request):
+async def tasks_page(request: Request, user: Optional[User] = Depends(get_current_user_from_request)):
     """Tasks management page"""
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "pages/tasks.html",
-        {"request": request, "title": "Tasks"}
+        {"request": request, "title": "Tasks", "user": user}
     )
 
 
 @app.get("/calendar")
-async def calendar_page(request: Request):
+async def calendar_page(request: Request, user: Optional[User] = Depends(get_current_user_from_request)):
     """Calendar page"""
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "pages/calendar.html",
-        {"request": request, "title": "Calendar"}
+        {"request": request, "title": "Calendar", "user": user}
     )
 
 
 @app.get("/settings")
-async def settings_page(request: Request):
+async def settings_page(request: Request, user: Optional[User] = Depends(get_current_user_from_request)):
     """Settings page"""
+    if user is None:
+        return RedirectResponse(url="/login", status_code=status.HTTP_302_FOUND)
+
     return templates.TemplateResponse(
         "pages/settings.html",
-        {"request": request, "title": "Settings"}
+        {"request": request, "title": "Settings", "user": user}
     )
 
 

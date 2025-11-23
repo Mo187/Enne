@@ -46,7 +46,7 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
         user_context: Dict[str, Any]
     ) -> ToolResult:
         """
-        Execute the MCP tool with CRM integration.
+        Execute the MCP tool with CRM integration and automatic token management.
 
         Args:
             parameters: Tool-specific parameters from the CRM
@@ -76,10 +76,10 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
             )
 
         try:
-            # Get user's Microsoft 365 integration
-            tokens = await self._get_user_tokens(user_id, user_context.get("db"))
+            # Get user's Microsoft 365 integration with token validation
+            integration = await self._get_integration_with_validation(user_id, user_context.get("db"))
 
-            if not tokens:
+            if not integration:
                 return ToolResult(
                     success=False,
                     error="Microsoft 365 not connected. Please connect your Microsoft 365 account in Settings.",
@@ -92,45 +92,14 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
                     }
                 )
 
-            # Convert CRM parameters to MCP format
-            mcp_arguments = self._convert_to_mcp_format(parameters, user_id)
-
-            self.logger.info(
-                "Executing MCP tool",
-                tool_name=self.mcp_tool_name,
-                user_id=user_id,
-                parameters=list(mcp_arguments.keys())
-            )
-
-            # Execute MCP tool
-            mcp_result = await self.mcp_client.call_tool(
-                tool_name=self.mcp_tool_name,
-                arguments=mcp_arguments,
-                access_token=tokens["access_token"],
-                refresh_token=tokens["refresh_token"],
-                expires_at=tokens["expires_at"],
-                user_id=str(user_id)
-            )
-
-            # Handle token refresh if needed
-            if mcp_result.requires_auth:
-                self.logger.info("Attempting token refresh", user_id=user_id)
-                refreshed = await self._refresh_user_tokens(user_id, tokens["refresh_token"], user_context.get("db"))
-
-                if refreshed:
-                    # Retry with new tokens
-                    mcp_result = await self.mcp_client.call_tool(
-                        tool_name=self.mcp_tool_name,
-                        arguments=mcp_arguments,
-                        access_token=refreshed["access_token"],
-                        refresh_token=refreshed["refresh_token"],
-                        expires_at=refreshed["expires_at"],
-                        user_id=str(user_id)
-                    )
-                else:
+            # Check if token is expired or about to expire, refresh if needed
+            if integration.is_token_expired:
+                self.logger.warning("Token expired, attempting refresh before execution", user_id=user_id)
+                integration = await self._refresh_integration_tokens(integration, user_context.get("db"))
+                if not integration or integration.is_token_expired:
                     return ToolResult(
                         success=False,
-                        error="Microsoft 365 authentication expired. Please reconnect your account.",
+                        error="Microsoft 365 authentication expired and refresh failed. Please reconnect your account.",
                         requires_clarification=True,
                         clarification_type="authentication_required",
                         clarification_data={
@@ -139,6 +108,92 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
                             "url": "/settings#integrations"
                         }
                     )
+            elif integration.needs_refresh:
+                # Proactive refresh if expires within 1 hour
+                self.logger.info("Token expires soon, refreshing proactively", user_id=user_id)
+                try:
+                    integration = await self._refresh_integration_tokens(integration, user_context.get("db"))
+                except Exception as refresh_error:
+                    # Log but continue with existing token - it's not expired yet
+                    self.logger.warning(
+                        "Proactive token refresh failed, continuing with current token",
+                        user_id=user_id,
+                        error=str(refresh_error)
+                    )
+
+            # Convert CRM parameters to MCP format
+            mcp_arguments = self._convert_to_mcp_format(parameters, user_id)
+
+            self.logger.info(
+                "Executing MCP tool",
+                tool_name=self.mcp_tool_name,
+                user_id=user_id,
+                parameters=list(mcp_arguments.keys()),
+                token_expires_in_minutes=int((integration.token_expires_at - datetime.now(timezone.utc)).total_seconds() / 60) if integration.token_expires_at else None
+            )
+
+            # Execute MCP tool with retry on auth failure
+            max_retries = 2
+            mcp_result = None
+
+            for attempt in range(max_retries):
+                try:
+                    mcp_result = await self.mcp_client.call_tool(
+                        tool_name=self.mcp_tool_name,
+                        arguments=mcp_arguments,
+                        access_token=integration.access_token,
+                        refresh_token=integration.refresh_token,
+                        expires_at=integration.token_expires_at.isoformat() if integration.token_expires_at else None,
+                        user_id=str(user_id)
+                    )
+
+                    # If authentication failed and we have retries left, refresh and retry
+                    if mcp_result.requires_auth and attempt < max_retries - 1:
+                        self.logger.info(
+                            "Authentication failed, refreshing token and retrying",
+                            user_id=user_id,
+                            attempt=attempt + 1,
+                            max_retries=max_retries
+                        )
+
+                        integration = await self._refresh_integration_tokens(integration, user_context.get("db"))
+
+                        if not integration or integration.is_token_expired:
+                            return ToolResult(
+                                success=False,
+                                error="Microsoft 365 authentication expired and refresh failed. Please reconnect your account.",
+                                requires_clarification=True,
+                                clarification_type="authentication_required",
+                                clarification_data={
+                                    "service": "microsoft365",
+                                    "action": "reconnect",
+                                    "url": "/settings#integrations"
+                                }
+                            )
+
+                        # Continue to retry with refreshed token
+                        continue
+                    else:
+                        # Success or final failure
+                        break
+
+                except Exception as tool_error:
+                    if attempt < max_retries - 1:
+                        self.logger.warning(
+                            "MCP tool call failed, retrying",
+                            user_id=user_id,
+                            attempt=attempt + 1,
+                            error=str(tool_error)
+                        )
+                        continue
+                    else:
+                        raise
+
+            if not mcp_result:
+                return ToolResult(
+                    success=False,
+                    error="Microsoft 365 tool execution failed after retries"
+                )
 
             # Convert MCP result to CRM ToolResult
             return self._convert_to_tool_result(mcp_result)
@@ -180,6 +235,13 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
         """
         mcp_args = parameters.copy()
 
+        # DEBUG LOGGING
+        self.logger.info(
+            "Converting parameters to MCP format",
+            tool_name=self.mcp_tool_name,
+            crm_parameters=parameters
+        )
+
         # Add user_id for user-based tools (if not stateless) - use consistent format
         if self.mcp_tool_name not in ["extract_document_content_stateless", "onedrive_upload_document", "sharepoint_upload_document_stateless"]:
             mcp_args["user_id"] = f"crm_user_{user_id}"
@@ -204,6 +266,13 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
         for crm_param, mcp_param in parameter_mappings.items():
             if crm_param in mcp_args:
                 mcp_args[mcp_param] = mcp_args.pop(crm_param)
+
+        # DEBUG LOGGING
+        self.logger.info(
+            "Converted to MCP format",
+            tool_name=self.mcp_tool_name,
+            mcp_parameters=mcp_args
+        )
 
         return mcp_args
 
@@ -234,9 +303,48 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
             time_info = f" (completed in {mcp_result.execution_time:.2f}s)"
             message = f"{message}{time_info}" if message else f"Operation completed{time_info}"
 
+        # Extract actual data based on tool type for better chat handler processing
+        result_data = mcp_result.data
+        if mcp_result.success and isinstance(mcp_result.data, dict):
+            # For email search results, extract the emails array
+            if self.mcp_tool_name == "outlook_search_emails" and "emails" in mcp_result.data:
+                result_data = mcp_result.data["emails"]
+                # If emails is empty but operation was successful, still return empty array
+                if not result_data:
+                    result_data = []
+            # For single email retrieval, extract the email dict
+            elif self.mcp_tool_name == "outlook_get_email" and "email" in mcp_result.data:
+                result_data = mcp_result.data["email"]
+
+                # CRITICAL: Verify body_content is present for email retrieval
+                if isinstance(result_data, dict):
+                    has_body = "body_content" in result_data
+                    body_length = len(result_data.get("body_content", "")) if has_body else 0
+                    self.logger.info(
+                        "Email body content verification",
+                        tool_name=self.mcp_tool_name,
+                        has_body_content=has_body,
+                        body_length=body_length,
+                        subject=result_data.get("subject", "unknown"),
+                        body_preview=result_data.get("body_content", "")[:100] if has_body else "NO BODY"
+                    )
+
+                    if not has_body or body_length == 0:
+                        self.logger.warning(
+                            "Email retrieved without body content!",
+                            tool_name=self.mcp_tool_name,
+                            email_id=result_data.get("id", "unknown"),
+                            subject=result_data.get("subject", "unknown")
+                        )
+            # For other structured responses, extract relevant data arrays
+            elif "items" in mcp_result.data:
+                result_data = mcp_result.data["items"]
+            elif "results" in mcp_result.data:
+                result_data = mcp_result.data["results"]
+
         return ToolResult(
             success=mcp_result.success,
-            data=mcp_result.data,
+            data=result_data,
             message=message,
             error=mcp_result.error,
             total_count=total_count,
@@ -248,31 +356,31 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
             } if mcp_result.requires_auth else None
         )
 
-    async def _get_user_tokens(self, user_id: int, db: AsyncSession = None) -> Optional[Dict[str, str]]:
+    async def _get_integration_with_validation(self, user_id: int, db: AsyncSession = None) -> Optional[Integration]:
         """
-        Get user's Microsoft 365 tokens from the database.
+        Get user's Microsoft 365 integration with validation.
 
         Args:
             user_id: User ID
             db: Database session (optional)
 
         Returns:
-            Dictionary with access_token, refresh_token, expires_at
+            Integration object or None if not found/invalid
         """
         try:
             # Use provided session or get a new one
             if db is None:
                 async with get_db() as db:
-                    return await self._fetch_tokens(user_id, db)
+                    return await self._fetch_integration(user_id, db)
             else:
-                return await self._fetch_tokens(user_id, db)
+                return await self._fetch_integration(user_id, db)
 
         except Exception as e:
-            self.logger.error("Failed to get user tokens", user_id=user_id, error=str(e))
+            self.logger.error("Failed to get user integration", user_id=user_id, error=str(e))
             return None
 
-    async def _fetch_tokens(self, user_id: int, db: AsyncSession) -> Optional[Dict[str, str]]:
-        """Fetch tokens from database."""
+    async def _fetch_integration(self, user_id: int, db: AsyncSession) -> Optional[Integration]:
+        """Fetch integration from database."""
         query = select(Integration).where(
             Integration.user_id == user_id,
             Integration.service_type == "microsoft365",
@@ -282,6 +390,32 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
         integration = result.scalar_one_or_none()
 
         if not integration or not integration.access_token:
+            self.logger.warning("No valid Microsoft 365 integration found", user_id=user_id)
+            return None
+
+        self.logger.info(
+            "Integration fetched",
+            user_id=user_id,
+            is_expired=integration.is_token_expired,
+            needs_refresh=integration.needs_refresh,
+            expires_at=integration.token_expires_at.isoformat() if integration.token_expires_at else "unknown"
+        )
+
+        return integration
+
+    async def _get_user_tokens(self, user_id: int, db: AsyncSession = None) -> Optional[Dict[str, str]]:
+        """
+        Get user's Microsoft 365 tokens from the database (legacy method).
+
+        Args:
+            user_id: User ID
+            db: Database session (optional)
+
+        Returns:
+            Dictionary with access_token, refresh_token, expires_at
+        """
+        integration = await self._get_integration_with_validation(user_id, db)
+        if not integration:
             return None
 
         return {
@@ -289,6 +423,88 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
             "refresh_token": integration.refresh_token,
             "expires_at": integration.token_expires_at.isoformat() if integration.token_expires_at else None
         }
+
+    async def _fetch_tokens(self, user_id: int, db: AsyncSession) -> Optional[Dict[str, str]]:
+        """Fetch tokens from database (legacy method)."""
+        integration = await self._fetch_integration(user_id, db)
+        if not integration:
+            return None
+
+        return {
+            "access_token": integration.access_token,
+            "refresh_token": integration.refresh_token,
+            "expires_at": integration.token_expires_at.isoformat() if integration.token_expires_at else None
+        }
+
+    async def _refresh_integration_tokens(self, integration: Integration, db: AsyncSession = None) -> Optional[Integration]:
+        """
+        Refresh integration tokens using MCP client.
+
+        Args:
+            integration: Integration object with current tokens
+            db: Database session (optional)
+
+        Returns:
+            Updated Integration object or None if refresh failed
+        """
+        try:
+            self.logger.info("Refreshing Microsoft 365 tokens", user_id=integration.user_id)
+
+            # Refresh tokens via MCP client
+            new_tokens = await self.mcp_client.refresh_access_token(
+                refresh_token=integration.refresh_token,
+                user_id=str(integration.user_id)
+            )
+
+            if not new_tokens or "access_token" not in new_tokens:
+                self.logger.error("Token refresh failed - no access token returned", user_id=integration.user_id)
+                return None
+
+            # Update integration in database
+            if db is None:
+                async with get_db() as db:
+                    return await self._update_integration_tokens(integration.user_id, new_tokens, db)
+            else:
+                return await self._update_integration_tokens(integration.user_id, new_tokens, db)
+
+        except Exception as e:
+            self.logger.error("Token refresh failed", user_id=integration.user_id, error=str(e))
+            return None
+
+    async def _update_integration_tokens(self, user_id: int, tokens: Dict[str, Any], db: AsyncSession) -> Optional[Integration]:
+        """Update integration tokens in database and return updated integration."""
+        query = select(Integration).where(
+            Integration.user_id == user_id,
+            Integration.service_type == "microsoft365"
+        )
+        result = await db.execute(query)
+        integration = result.scalar_one_or_none()
+
+        if integration:
+            integration.access_token = tokens.get("access_token")
+            if "refresh_token" in tokens:
+                integration.refresh_token = tokens["refresh_token"]
+            if "expires_at" in tokens:
+                # Handle both datetime and string formats
+                expires_at = tokens["expires_at"]
+                if isinstance(expires_at, str):
+                    integration.token_expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                else:
+                    integration.token_expires_at = expires_at
+            integration.updated_at = datetime.now(timezone.utc)
+
+            await db.commit()
+            await db.refresh(integration)
+
+            self.logger.info(
+                "Tokens updated successfully",
+                user_id=user_id,
+                new_expires_at=integration.token_expires_at.isoformat() if integration.token_expires_at else "unknown"
+            )
+
+            return integration
+
+        return None
 
     async def _refresh_user_tokens(self, user_id: int, refresh_token: str, db: AsyncSession = None) -> Optional[Dict[str, str]]:
         """

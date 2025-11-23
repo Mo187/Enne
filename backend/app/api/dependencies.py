@@ -1,5 +1,5 @@
 from typing import Generator, Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -9,23 +9,39 @@ from ..core.database import get_db
 from ..core.security import verify_token
 from ..models.user import User
 
-# Security scheme
-security = HTTPBearer()
+# Security scheme - allow auto_error=False to handle cookies as fallback
+security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     db: AsyncSession = Depends(get_db),
-    credentials: HTTPAuthorizationCredentials = Depends(security)
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)
 ) -> User:
-    """Get the current authenticated user"""
+    """
+    Get the current authenticated user.
+    Supports both Bearer token (Authorization header) and cookie-based authentication.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+    token = None
+
+    # Try to get token from Authorization header first
+    if credentials:
+        token = credentials.credentials
+    # Fallback to cookie
+    elif "access_token" in request.cookies:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        raise credentials_exception
+
     # Verify the token
-    user_id = verify_token(credentials.credentials)
+    user_id = verify_token(token)
     if user_id is None:
         raise credentials_exception
 

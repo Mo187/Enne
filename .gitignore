@@ -23,7 +23,7 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-mcp-microsoft365-server/
+*.md
 
 # Virtual Environments
 .env

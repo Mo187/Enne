@@ -5,76 +5,81 @@
 
 {% block js %}
 <script>
-// Check authentication before loading contacts page
+// Check authentication before loading page
 document.addEventListener('DOMContentLoaded', function() {
     const token = localStorage.getItem('access_token');
     const userData = localStorage.getItem('user_data');
-
     if (!token || !userData) {
-        // No authentication data, redirect to login
         window.location.href = '/login';
         return;
     }
-
-    // Verify token is still valid by making a test API call
     fetch('/api/v1/auth/me', {
         method: 'GET',
-        headers: {
-            'Authorization': 'Bearer ' + token
-        }
-    })
-    .then(response => {
+        headers: {'Authorization': 'Bearer ' + token}
+    }).then(response => {
         if (response.status === 401 || response.status === 403) {
-            // Token is invalid, clear storage and redirect
             localStorage.removeItem('access_token');
             localStorage.removeItem('user_data');
             window.location.href = '/login';
         }
-    })
-    .catch(error => {
-        console.log('Token verification failed, assuming valid');
-    });
+    }).catch(error => console.log('Token verification failed, assuming valid'));
 });
 </script>
 {% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-        <!-- <div>
-            <h1 class="text-3xl font-bold" style="color: var(--foreground)">Contacts</h1>
-            <p style="color: var(--foreground-secondary)">Manage your business contacts</p>
-        </div> -->
-        <button class="btn-modern" onclick="document.getElementById('add-contact-modal').showModal()">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+<div class="space-y-8">
+    <!-- Enhanced Header with Gradient Title -->
+    <div class="flex items-center justify-between mb-8">
+        <div class="space-y-2">
+            <!-- <h1 class="text-4xl font-bold text-gradient">
+                Contacts
+            </h1> -->
+            <p class="text-lg opacity-80" style="color: var(--foreground-secondary)">
+                Manage your business relationships ✨
+            </p>
+        </div>
+        <button class="btn-modern btn-primary group" onclick="document.getElementById('add-contact-modal').showModal()">
+            <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
             </svg>
             Add Contact
         </button>
     </div>
 
-    <!-- Search and Filter -->
-    <div class="card-modern p-6 mb-6">
-        <div class="flex flex-col md:flex-row gap-4">
-            <div class="flex-1">
-                <input
-                    type="text"
-                    name="search"
-                    placeholder="Search contacts by name, email, or organization..."
-                    class="input-modern w-full"
-                    id="search-contacts"
-                    hx-get="/api/v1/contacts"
-                    hx-trigger="keyup changed delay:300ms"
-                    hx-target="#contacts-list"
-                    hx-include="[name='organization-filter']"
-                >
+    <!-- Enhanced Search and Filter Section -->
+    <div class="search-container-modern backdrop-blur-lg">
+        <div class="flex flex-col lg:flex-row gap-4 items-stretch">
+            <!-- Search Input with Glass Effect -->
+            <div class="flex-1 relative">
+                <div class="search-input-wrapper">
+                    <svg class="search-icon w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                    <input
+                        type="text"
+                        name="search"
+                        placeholder="Search contacts by name, email, or organization..."
+                        class="search-input-modern"
+                        id="search-contacts"
+                        hx-get="/api/v1/contacts"
+                        hx-trigger="keyup changed delay:300ms"
+                        hx-target="#contacts-list"
+                        hx-include="[name='organization-filter']"
+                    >
+                </div>
             </div>
-            <select name="organization-filter" class="input-modern" id="organization-filter">
-                <option value="">All Organizations</option>
-            </select>
-            <button class="btn-modern" onclick="exportContacts()">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+            <!-- Filter Dropdown -->
+            <div class="filter-select-wrapper">
+                <select name="organization-filter" class="filter-select-modern" id="organization-filter">
+                    <option value="">All Organizations</option>
+                </select>
+            </div>
+
+            <!-- Export Button -->
+            <button class="btn-modern btn-secondary group" onclick="exportContacts()">
+                <svg class="w-4 h-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                 </svg>
                 Export CSV
@@ -82,73 +87,104 @@ document.addEventListener('DOMContentLoaded', function() {
         </div>
     </div>
 
-    <!-- Contacts List -->
+    <!-- Enhanced Contacts List -->
     <div id="contacts-list"
          hx-get="/api/v1/contacts"
          hx-trigger="load"
-         hx-swap="innerHTML">
-        <!-- Loading placeholder -->
-        <div class="card-modern text-center py-12">
-            <div class="loading-pulse w-8 h-8 mx-auto mb-4 rounded-full" style="background: var(--primary)"></div>
-            <p style="color: var(--foreground-secondary)">Loading contacts...</p>
+         hx-swap="innerHTML"
+         class="contacts-grid-modern">
+        <!-- Beautiful Loading State -->
+        <div class="loading-card-modern">
+            <div class="loading-spinner-modern"></div>
+            <div class="space-y-2 text-center">
+                <h3 class="text-lg font-semibold" style="color: var(--foreground)">Loading contacts</h3>
+                <p class="opacity-70" style="color: var(--foreground-secondary)">Gathering your business connections...</p>
+            </div>
         </div>
     </div>
 
-    <!-- Add Contact Modal -->
-    <dialog id="add-contact-modal" class="modal">
-        <div class="card-modern w-11/12 max-w-2xl p-6">
-            <h3 class="font-bold text-lg mb-4" style="color: var(--foreground)">Add New Contact</h3>
-
-            <form id="add-contact-form" class="space-y-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text" style="color: var(--foreground)">Full Name *</span>
-                        </label>
-                        <input type="text" name="name" class="input-modern" required>
+    <!-- Enhanced Add Contact Modal -->
+    <dialog id="add-contact-modal" class="modal-modern">
+        <div class="modal-backdrop-modern" onclick="document.getElementById('add-contact-modal').close()"></div>
+        <div class="modal-card-modern">
+            <!-- Modal Header -->
+            <div class="modal-header-modern">
+                <div class="flex items-center space-x-3">
+                    <div class="icon-badge-modern">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+                        </svg>
                     </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text" style="color: var(--foreground)">Email</span>
-                        </label>
-                        <input type="email" name="email" class="input-modern">
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text" style="color: var(--foreground)">Phone</span>
-                        </label>
-                        <input type="tel" name="phone" class="input-modern">
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text" style="color: var(--foreground)">Job Position</span>
-                        </label>
-                        <input type="text" name="job_position" class="input-modern">
-                    </div>
-
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text" style="color: var(--foreground)">Organization</span>
-                        </label>
-                        <input type="text" name="organization" class="input-modern">
-                    </div>
+                    <h3 class="text-2xl font-bold text-gradient">Add New Contact</h3>
                 </div>
+                <button type="button" class="modal-close-btn" onclick="document.getElementById('add-contact-modal').close()">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            </div>
 
-                <div class="form-control">
-                    <label class="label">
-                        <span class="label-text" style="color: var(--foreground)">Notes</span>
-                    </label>
-                    <textarea name="notes" class="input-modern" rows="3" style="resize: vertical;"></textarea>
-                </div>
+            <!-- Modal Content -->
+            <div class="modal-content-modern">
+                <form id="add-contact-form" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">
+                                Full Name *
+                            </label>
+                            <input type="text" name="name" class="form-input-modern" placeholder="Enter full name" required>
+                        </div>
 
-                <div class="flex justify-end space-x-3 mt-6">
-                    <button type="button" class="btn-modern" style="background: var(--secondary); color: var(--secondary-foreground);" onclick="document.getElementById('add-contact-modal').close()">Cancel</button>
-                    <button type="submit" class="btn-modern">Add Contact</button>
-                </div>
-            </form>
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">
+                                Email Address
+                            </label>
+                            <input type="email" name="email" class="form-input-modern" placeholder="contact@company.com">
+                        </div>
+
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">
+                                Phone Number
+                            </label>
+                            <input type="tel" name="phone" class="form-input-modern" placeholder="+1 (555) 123-4567">
+                        </div>
+
+                        <div class="form-group-modern">
+                            <label class="form-label-modern">
+                                Job Position
+                            </label>
+                            <input type="text" name="job_position" class="form-input-modern" placeholder="e.g. Marketing Manager">
+                        </div>
+
+                        <div class="form-group-modern md:col-span-2">
+                            <label class="form-label-modern">
+                                Organization
+                            </label>
+                            <input type="text" name="organization" class="form-input-modern" placeholder="Company or organization name">
+                        </div>
+                    </div>
+
+                    <div class="form-group-modern">
+                        <label class="form-label-modern">
+                            Notes
+                        </label>
+                        <textarea name="notes" class="form-textarea-modern" rows="3" placeholder="Additional information about this contact..."></textarea>
+                    </div>
+
+                    <!-- Modal Actions -->
+                    <div class="modal-actions-modern">
+                        <button type="button" class="btn-modern btn-secondary" onclick="document.getElementById('add-contact-modal').close()">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn-modern btn-primary">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            Add Contact
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     </dialog>
 </div>
@@ -177,6 +213,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Load organization filter options
     loadOrganizationFilter();
+
+    // Initialize contact form if modal exists
+    initializeContactForm();
 });
 
 // Configure HTMX to include auth headers
@@ -204,36 +243,37 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
     }
 });
 
-// Add contact form submission
-document.getElementById('add-contact-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
+// Handle form submission with event delegation
+document.addEventListener('submit', async function(e) {
+    if (e.target.id === 'add-contact-form') {
+        e.preventDefault();
 
-    const formData = new FormData(e.target);
-    const contactData = Object.fromEntries(formData.entries());
+        const formData = new FormData(e.target);
+        const contactData = Object.fromEntries(formData.entries());
 
-    try {
-        const response = await fetch('/api/v1/contacts', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + localStorage.getItem('access_token')
-            },
-            body: JSON.stringify(contactData)
-        });
+        try {
+            const response = await fetch('/api/v1/contacts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('access_token')
+                },
+                body: JSON.stringify(contactData)
+            });
 
-        if (response.ok) {
-            // Close modal and refresh list
-            document.getElementById('add-contact-modal').close();
-            e.target.reset();
-            htmx.trigger('#contacts-list', 'htmx:load');
-            showToast('Contact added successfully!', 'success');
-        } else {
-            const error = await response.json();
-            showToast(error.detail || 'Failed to add contact', 'error');
+            if (response.ok) {
+                document.getElementById('add-contact-modal').close();
+                e.target.reset();
+                htmx.trigger('#contacts-list', 'htmx:load');
+                showToast('Contact added successfully!', 'success');
+            } else {
+                const error = await response.json();
+                showToast(error.detail || 'Failed to add contact', 'error');
+            }
+        } catch (error) {
+            console.error('Error adding contact:', error);
+            showToast('Network error occurred', 'error');
         }
-    } catch (error) {
-        console.error('Error adding contact:', error);
-        showToast('Network error occurred', 'error');
     }
 });
 

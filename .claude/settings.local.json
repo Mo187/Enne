@@ -4,7 +4,9 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:gofastmcp.com)",
-      "WebFetch(domain:medium.com)"
+      "WebFetch(domain:medium.com)",
+      "Bash(docker inspect:*)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []

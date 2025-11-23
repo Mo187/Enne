@@ -44,12 +44,19 @@ def verify_token(token: str) -> Union[str, None]:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    # Truncate password to 72 bytes for bcrypt compatibility
+    # This prevents ValueError when password is too long
+    password_bytes = plain_password.encode('utf-8')[:72]
+    plain_password_truncated = password_bytes.decode('utf-8', errors='ignore')
+    return pwd_context.verify(plain_password_truncated, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """Hash a password"""
-    return pwd_context.hash(password)
+    # Truncate password to 72 bytes for bcrypt compatibility
+    password_bytes = password.encode('utf-8')[:72]
+    password_truncated = password_bytes.decode('utf-8', errors='ignore')
+    return pwd_context.hash(password_truncated)
 
 
 def generate_password_reset_token(email: str) -> str:

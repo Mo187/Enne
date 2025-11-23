@@ -81,7 +81,7 @@ class ProjectList(BaseModel):
     total_pages: int
 
 
-@router.get("/")
+@router.get("")
 async def list_projects(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
@@ -206,7 +206,7 @@ async def list_projects(
         )
 
 
-@router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     project_data: ProjectCreate,
     current_user: User = Depends(get_current_active_user),

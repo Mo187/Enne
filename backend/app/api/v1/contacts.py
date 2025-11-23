@@ -92,7 +92,7 @@ class ContactList(BaseModel):
     total_pages: int
 
 
-@router.get("/")
+@router.get("")
 async def list_contacts(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
@@ -195,7 +195,7 @@ async def list_contacts(
         )
 
 
-@router.post("/", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=ContactResponse, status_code=status.HTTP_201_CREATED)
 async def create_contact(
     contact_data: ContactCreate,
     current_user: User = Depends(get_current_active_user),

@@ -2313,6 +2313,72 @@ async def execute_api_action(
             # Check if it's a Microsoft 365 MCP tool
             if tool_name.startswith(("outlook_", "sharepoint_", "onedrive_", "teams_", "authenticate", "extract_document")):
                 try:
+                    # Handle AI-generated email content when user asks to "make up" subject/body
+                    if tool_name == "outlook_send_email":
+                        original_message = action.get("description", "")
+                        # Check if user asked AI to generate content
+                        generate_indicators = ["make up", "generate", "create for me", "write for me",
+                                              "compose", "come up with", "whatever you want", "anything"]
+                        message_lower = original_message.lower() if original_message else ""
+
+                        # Also check the raw_text from parsed_command if available
+                        raw_text = action.get("raw_text", "").lower()
+                        needs_generation = any(ind in message_lower or ind in raw_text for ind in generate_indicators)
+
+                        if needs_generation:
+                            # Check if subject or body are missing
+                            subject = parameters.get("subject")
+                            body = parameters.get("body")
+                            to_recipients = parameters.get("to_recipients", [])
+
+                            if not subject or not body:
+                                logger.info(f"[EMAIL GEN] User asked to generate email content. subject={bool(subject)}, body={bool(body)}")
+
+                                # Generate email content using AI
+                                try:
+                                    gen_prompt = f"""Generate a professional email with the following details:
+- To: {', '.join(to_recipients) if to_recipients else 'recipient'}
+- Context: {raw_text or original_message}
+
+Respond in this exact JSON format:
+{{"subject": "your subject here", "body": "your email body here"}}
+
+Keep the email professional, concise, and appropriate for a business context."""
+
+                                    gen_response = await ai_service.generate_response(
+                                        messages=[
+                                            {"role": "system", "content": "You are an email composition assistant. Generate professional email content."},
+                                            {"role": "user", "content": gen_prompt}
+                                        ],
+                                        max_tokens=500
+                                    )
+
+                                    # Parse the generated content
+                                    import json as json_lib
+                                    gen_text = gen_response.get("response", "") if isinstance(gen_response, dict) else str(gen_response)
+
+                                    # Try to extract JSON from response
+                                    json_match = re.search(r'\{[^{}]*"subject"[^{}]*"body"[^{}]*\}', gen_text, re.DOTALL)
+                                    if json_match:
+                                        gen_data = json_lib.loads(json_match.group())
+                                        if not subject and gen_data.get("subject"):
+                                            parameters["subject"] = gen_data["subject"]
+                                            logger.info(f"[EMAIL GEN] Generated subject: {gen_data['subject']}")
+                                        if not body and gen_data.get("body"):
+                                            parameters["body"] = gen_data["body"]
+                                            logger.info(f"[EMAIL GEN] Generated body: {gen_data['body'][:50]}...")
+                                    else:
+                                        # Fallback: use the response as body if no JSON
+                                        if not subject:
+                                            parameters["subject"] = "Message for you"
+                                        if not body:
+                                            parameters["body"] = gen_text.strip()
+                                        logger.info("[EMAIL GEN] Used fallback generation")
+
+                                except Exception as gen_error:
+                                    logger.error(f"[EMAIL GEN] Failed to generate email content: {gen_error}")
+                                    # Don't fail the whole request, let MCP server handle missing fields
+
                     # Check if tool is registered - if not, try to re-register MCP tools
                     if not tool_registry.get_tool(tool_name):
                         logger.warning(
@@ -2553,13 +2619,16 @@ async def send_chat_message(
         message_lower = chat_data.message.lower().strip()
 
         pending_offer = user_memory.get_pending_offer()
+        logger.info(f"[FOLLOW-UP DEBUG] pending_offer exists: {pending_offer is not None}, message: '{chat_data.message[:80]}'")
         if pending_offer:
+            logger.info(f"[FOLLOW-UP DEBUG] offer details: entity_type={pending_offer.get('entity_type')}, entity_id={pending_offer.get('entity_id')}, entity_name={pending_offer.get('entity_name')}")
             # Check if user is accepting the offer (affirmative or contains field data)
             affirmative_indicators = ["yes", "sure", "ok", "okay", "yeah", "yep", "please",
                                       "go ahead", "add", "do it", "update"]
 
             has_affirmative = any(ind in message_lower for ind in affirmative_indicators)
             extracted_fields = extract_fields_from_message(chat_data.message)
+            logger.info(f"[FOLLOW-UP DEBUG] has_affirmative={has_affirmative}, extracted_fields={extracted_fields}")
 
             # Accept if: pure affirmative OR affirmative with data OR just data
             if has_affirmative or extracted_fields:
@@ -3255,6 +3324,7 @@ ABSOLUTELY FORBIDDEN:
                     ai_response_lower = ai_response["response"].lower()
                     add_info_patterns = [
                         "would you like me to add",
+                        "would you like to add",
                         "shall i add",
                         "want me to add",
                         "add more info",
@@ -3264,9 +3334,16 @@ ABSOLUTELY FORBIDDEN:
                         "add her email",
                         "add the email",
                         "add additional",
-                        "more details"
+                        "more details",
+                        "additional information",
+                        "more information",
+                        "like to add",
+                        "want to add",
+                        "provide more",
+                        "provide their"
                     ]
 
+                    logger.info(f"[FOLLOW-UP DEBUG] Checking AI response for offer patterns: '{ai_response_lower[:100]}'")
                     if any(pattern in ai_response_lower for pattern in add_info_patterns):
                         user_memory.set_pending_entity_offer(
                             offer_type="add_info",

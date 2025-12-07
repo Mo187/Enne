@@ -611,7 +611,8 @@ CONTEXT-AWARE RULES:
                     "cc_recipients": cc_list,  # MCP server expects array
                     "importance": entities.get("priority", "normal")
                 },
-                "description": f"Send email to {entities.get('email_to', 'recipient')}"
+                "description": f"Send email to {entities.get('email_to', 'recipient')}",
+                "raw_text": parsed_command.get("raw_text", "")  # For AI content generation detection
             }
 
         elif intent == "search_emails":

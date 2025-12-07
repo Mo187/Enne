@@ -258,23 +258,15 @@ POST   /api/integrations/connect - Connect external service
 ```
 DATABASE_URL=<from Railway PostgreSQL addon>
 REDIS_URL=<from Railway Redis addon>
-SECRET_KEY=<generate with: python -c "import secrets; print(secrets.token_hex(32))">
-MCP_MICROSOFT365_URL=http://mcp-server.railway.internal:8001
+MCP_MICROSOFT365_URL=http://mcp-server.railway.internal:8080
 FRONTEND_URL=https://your-app.up.railway.app
 BACKEND_URL=https://your-app.up.railway.app
-ANTHROPIC_API_KEY=<your key>
-MICROSOFT_CLIENT_ID=<Azure app client ID>
-MICROSOFT_CLIENT_SECRET=<Azure app secret>
-MICROSOFT_TENANT_ID=<Azure tenant ID>
 MICROSOFT_REDIRECT_URI=https://your-app.up.railway.app/api/v1/integrations/ms365/callback
 ```
 
 **MCP Server Service:**
 ```
-PORT=8001
-MICROSOFT_CLIENT_ID=<same as backend>
-MICROSOFT_CLIENT_SECRET=<same as backend>
-MICROSOFT_TENANT_ID=<same as backend>
+PORT=8080
 MICROSOFT_REDIRECT_URI=https://your-crm.up.railway.app/api/v1/integrations/ms365/callback
 FRONTEND_URL=https://your-crm.up.railway.app
 ```

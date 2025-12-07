@@ -9,6 +9,7 @@ with the existing tool registry and execution framework.
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 import json
+import re
 import structlog
 
 from ..services.tool_interface import BaseTool, ToolResult, ToolSchema, ToolType
@@ -21,6 +22,130 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = structlog.get_logger()
 
 
+# Tool parameter schemas for validation
+MCP_TOOL_SCHEMAS = {
+    "outlook_search_emails": {
+        "required": [],
+        "optional": ["query", "folder", "limit", "from_address", "subject", "has_attachments"],
+        "defaults": {"limit": 10, "folder": "inbox"},
+        "types": {"limit": int, "has_attachments": bool}
+    },
+    "outlook_get_email": {
+        "required": [],  # email_id is optional - MCP server fetches most recent if None
+        "optional": ["email_id", "include_attachments"],
+        "defaults": {},
+        "friendly_name": "email"
+    },
+    "outlook_send_email": {
+        "required": ["to", "subject", "body"],
+        "optional": ["cc", "bcc", "importance"],
+        "defaults": {"importance": "normal"},
+        "error_hints": {
+            "to": "Who should I send this email to?",
+            "subject": "What should the email subject be?",
+            "body": "What would you like to say in the email?"
+        }
+    },
+    "outlook_create_draft": {
+        "required": ["to", "subject", "body"],
+        "optional": ["cc", "bcc"],
+        "error_hints": {
+            "to": "Who is this draft for?",
+            "subject": "What should the subject line be?",
+            "body": "What would you like the draft to say?"
+        }
+    },
+    "outlook_reply_email": {
+        "required": ["email_id", "body"],
+        "optional": ["reply_all"],
+        "defaults": {"reply_all": False},
+        "error_hints": {
+            "email_id": "Which email would you like to reply to?",
+            "body": "What would you like to say in your reply?"
+        }
+    },
+    "outlook_get_calendar_events": {
+        "required": [],
+        "optional": ["days", "limit", "start_date", "end_date"],
+        "defaults": {"days": 7, "limit": 20},
+        "types": {"days": int, "limit": int}
+    },
+    "outlook_create_calendar_event": {
+        "required": ["subject", "start_time", "end_time"],
+        "optional": ["location", "body", "attendees", "is_online_meeting"],
+        "defaults": {"is_online_meeting": False},
+        "error_hints": {
+            "subject": "What should the meeting be called?",
+            "start_time": "When should the meeting start?",
+            "end_time": "When should the meeting end?"
+        }
+    },
+    "onedrive_list_files": {
+        "required": [],
+        "optional": ["path", "limit"],
+        "defaults": {"path": "/", "limit": 50}
+    },
+    "onedrive_search_files": {
+        "required": ["query"],
+        "optional": ["limit"],
+        "defaults": {"limit": 20},
+        "error_hints": {
+            "query": "What would you like to search for in OneDrive?"
+        }
+    },
+    "sharepoint_list_sites": {
+        "required": [],
+        "optional": ["limit"],
+        "defaults": {"limit": 50}
+    },
+    "sharepoint_search_documents": {
+        "required": ["query"],
+        "optional": ["site_id", "limit"],
+        "defaults": {"limit": 20},
+        "error_hints": {
+            "query": "What would you like to search for in SharePoint?"
+        }
+    },
+    "teams_list_teams": {
+        "required": [],
+        "optional": ["limit"],
+        "defaults": {"limit": 50}
+    },
+    "teams_list_channels": {
+        "required": ["team_id"],
+        "optional": [],
+        "error_hints": {
+            "team_id": "Which team's channels would you like to see?"
+        }
+    },
+    "teams_send_message": {
+        "required": ["team_id", "channel_id", "message"],
+        "optional": [],
+        "error_hints": {
+            "team_id": "Which team should I send this to?",
+            "channel_id": "Which channel should I post in?",
+            "message": "What would you like to say?"
+        }
+    }
+}
+
+# User-friendly error message mappings
+ERROR_MESSAGE_MAPPINGS = {
+    "401": "Your Microsoft 365 session has expired. Please reconnect in Settings → Integrations.",
+    "403": "You don't have permission to perform this action in Microsoft 365.",
+    "404": "The requested item couldn't be found. It may have been deleted or moved.",
+    "429": "Microsoft 365 is rate limiting requests. Please wait a moment and try again.",
+    "500": "Microsoft 365 is experiencing issues. Please try again in a few minutes.",
+    "503": "Microsoft 365 service is temporarily unavailable. Please try again later.",
+    "ECONNREFUSED": "Unable to connect to Microsoft 365. Please check your internet connection.",
+    "ETIMEDOUT": "The request to Microsoft 365 timed out. Please try again.",
+    "invalid_grant": "Your Microsoft 365 authorization has expired. Please reconnect your account.",
+    "token_expired": "Your session has expired. Please reconnect your Microsoft 365 account.",
+    "no_emails_found": "No emails found matching your search criteria.",
+    "mailbox_not_found": "Couldn't access your mailbox. Please check your Microsoft 365 connection.",
+}
+
+
 class MCPMicrosoft365ToolAdapter(BaseTool):
     """
     Adapter that wraps MCP Microsoft 365 tools to work with CRM's BaseTool interface.
@@ -30,6 +155,7 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
     - Managing user authentication tokens
     - Parameter mapping and validation
     - Error handling and logging
+    - User-friendly error messages
     """
 
     def __init__(self, mcp_tool_name: str, tool_type: ToolType, mcp_client: MCPMicrosoft365Client, description: str = None, schema: Dict[str, Any] = None):
@@ -39,6 +165,144 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
         self.tool_description = description or f"Microsoft 365 {mcp_tool_name} tool"
         self.tool_schema = schema or {}
         self.logger = logger.bind(tool=mcp_tool_name, component="mcp_adapter")
+        # Get validation schema for this tool
+        self.validation_schema = MCP_TOOL_SCHEMAS.get(mcp_tool_name, {})
+
+    def _validate_parameters(self, parameters: Dict[str, Any]) -> Optional[ToolResult]:
+        """
+        Validate parameters before calling MCP tool.
+
+        Args:
+            parameters: Tool parameters to validate
+
+        Returns:
+            ToolResult with error if validation fails, None if valid
+        """
+        schema = self.validation_schema
+        if not schema:
+            return None  # No schema defined, skip validation
+
+        # Check required parameters
+        required = schema.get("required", [])
+        missing = []
+        for param in required:
+            if param not in parameters or parameters[param] is None or parameters[param] == "":
+                missing.append(param)
+
+        if missing:
+            # Build user-friendly error message
+            error_hints = schema.get("error_hints", {})
+            if len(missing) == 1 and missing[0] in error_hints:
+                error_msg = error_hints[missing[0]]
+            elif len(missing) == 1:
+                friendly_name = schema.get("friendly_name", missing[0].replace("_", " "))
+                error_msg = f"I need the {friendly_name} to complete this action."
+                if "error_hint" in schema:
+                    error_msg = schema["error_hint"]
+            else:
+                missing_friendly = [p.replace("_", " ") for p in missing]
+                error_msg = f"I need more information: {', '.join(missing_friendly)}."
+
+            self.logger.warning(
+                "Parameter validation failed - missing required parameters",
+                tool_name=self.mcp_tool_name,
+                missing_params=missing
+            )
+
+            return ToolResult(
+                success=False,
+                error=error_msg,
+                requires_clarification=True,
+                clarification_type="missing_parameters",
+                clarification_data={
+                    "tool": self.mcp_tool_name,
+                    "missing_params": missing,
+                    "hints": {p: error_hints.get(p, f"Please provide {p}") for p in missing}
+                }
+            )
+
+        # Type validation
+        types = schema.get("types", {})
+        for param, expected_type in types.items():
+            if param in parameters and parameters[param] is not None:
+                value = parameters[param]
+                if expected_type == int and not isinstance(value, int):
+                    try:
+                        parameters[param] = int(value)
+                    except (ValueError, TypeError):
+                        return ToolResult(
+                            success=False,
+                            error=f"Invalid value for {param.replace('_', ' ')}. Please provide a number.",
+                            requires_clarification=True,
+                            clarification_type="invalid_parameter_type",
+                            clarification_data={"param": param, "expected": "number"}
+                        )
+                elif expected_type == bool and not isinstance(value, bool):
+                    if isinstance(value, str):
+                        parameters[param] = value.lower() in ("true", "yes", "1")
+
+        # Apply defaults
+        defaults = schema.get("defaults", {})
+        for param, default_value in defaults.items():
+            if param not in parameters or parameters[param] is None:
+                parameters[param] = default_value
+
+        return None  # Validation passed
+
+    def _format_user_friendly_error(self, error: str, tool_name: str = None) -> str:
+        """
+        Convert cryptic error messages to user-friendly messages.
+
+        Args:
+            error: Original error message
+            tool_name: Name of the tool that failed
+
+        Returns:
+            User-friendly error message
+        """
+        if not error:
+            return "An unexpected error occurred. Please try again."
+
+        error_lower = error.lower()
+
+        # Check for known error patterns
+        for pattern, friendly_message in ERROR_MESSAGE_MAPPINGS.items():
+            if pattern.lower() in error_lower:
+                return friendly_message
+
+        # Check for HTTP status codes in error
+        status_match = re.search(r'\b(4\d{2}|5\d{2})\b', error)
+        if status_match:
+            status = status_match.group(1)
+            if status in ERROR_MESSAGE_MAPPINGS:
+                return ERROR_MESSAGE_MAPPINGS[status]
+
+        # Check for common error patterns
+        if "authentication" in error_lower or "unauthorized" in error_lower:
+            return "Your Microsoft 365 session has expired. Please reconnect in Settings → Integrations."
+        elif "permission" in error_lower or "forbidden" in error_lower:
+            return "You don't have permission to perform this action in Microsoft 365."
+        elif "not found" in error_lower:
+            return "The requested item couldn't be found. It may have been deleted or moved."
+        elif "timeout" in error_lower:
+            return "The request took too long. Please try again."
+        elif "network" in error_lower or "connection" in error_lower:
+            return "Unable to connect to Microsoft 365. Please check your internet connection."
+        elif "rate limit" in error_lower or "too many requests" in error_lower:
+            return "Too many requests. Please wait a moment and try again."
+        elif "invalid" in error_lower and "email" in error_lower:
+            return "The email address appears to be invalid. Please check and try again."
+        elif "mailbox" in error_lower:
+            return "There was an issue accessing your mailbox. Please try again."
+
+        # For unrecognized errors, provide a cleaner message
+        # Remove technical details but keep the essence
+        if len(error) > 200:
+            # Long error - truncate and simplify
+            return f"Microsoft 365 error: {error[:100]}... Please try again or contact support if this persists."
+
+        # Return a cleaned version of the error
+        return f"Microsoft 365 couldn't complete this action: {error}"
 
     async def execute(
         self,
@@ -76,6 +340,17 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
             )
 
         try:
+            # Validate parameters before calling MCP tool
+            validation_error = self._validate_parameters(parameters)
+            if validation_error:
+                self.logger.info(
+                    "Parameter validation failed",
+                    tool_name=self.mcp_tool_name,
+                    user_id=user_id,
+                    error=validation_error.error
+                )
+                return validation_error
+
             # Get user's Microsoft 365 integration with token validation
             integration = await self._get_integration_with_validation(user_id, user_context.get("db"))
 
@@ -205,9 +480,11 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
                 error=str(e),
                 user_id=user_id
             )
+            # Use friendly error formatter
+            friendly_error = self._format_user_friendly_error(str(e), self.mcp_tool_name)
             return ToolResult(
                 success=False,
-                error=f"Microsoft 365 integration error: {str(e)}"
+                error=friendly_error
             )
 
     def get_schema(self) -> ToolSchema:
@@ -342,11 +619,16 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
             elif "results" in mcp_result.data:
                 result_data = mcp_result.data["results"]
 
+        # Format error message to be user-friendly
+        formatted_error = None
+        if mcp_result.error:
+            formatted_error = self._format_user_friendly_error(mcp_result.error, self.mcp_tool_name)
+
         return ToolResult(
             success=mcp_result.success,
             data=result_data,
             message=message,
-            error=mcp_result.error,
+            error=formatted_error,
             total_count=total_count,
             requires_clarification=mcp_result.requires_auth,
             clarification_type="authentication_required" if mcp_result.requires_auth else None,

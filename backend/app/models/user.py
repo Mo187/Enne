@@ -35,6 +35,7 @@ class User(Base):
     organizations = relationship("Organization", back_populates="user", cascade="all, delete-orphan")
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
     integrations = relationship("Integration", back_populates="user", cascade="all, delete-orphan")
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")
 
     # Many-to-many relationships
     assigned_projects = relationship(

@@ -26,7 +26,7 @@ class AIProvider(ABC):
 
 
 class ClaudeProvider(AIProvider):
-    """Claude AI provider using Anthropic's API"""
+    """Claude AI provider using Anthropic's API with extended thinking support"""
 
     def __init__(self, api_key: str):
         self.api_key = api_key
@@ -74,6 +74,122 @@ class ClaudeProvider(AIProvider):
         except Exception as e:
             logger.error("Claude API error", error=str(e))
             raise Exception(f"Claude API error: {str(e)}")
+
+    async def generate_response_with_thinking(
+        self,
+        messages: List[Dict[str, str]],
+        thinking_budget: int = 10000,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Generate response using Claude with extended thinking mode.
+
+        Extended thinking enables deeper reasoning for complex tasks like:
+        - Ambiguous intent resolution
+        - Multi-step planning
+        - Complex entity disambiguation
+
+        Args:
+            messages: Conversation messages
+            thinking_budget: Max tokens for thinking (default 10000)
+            **kwargs: Additional parameters
+
+        Returns:
+            Dict with 'response', 'thinking' (optional), and 'used_thinking'
+        """
+        await self._ensure_client()
+
+        try:
+            # Convert messages to Claude format
+            claude_messages = []
+            system_message = None
+
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_message = msg["content"]
+                else:
+                    message_content = {"role": msg["role"], "content": msg["content"]}
+                    if msg.get("cache_control"):
+                        message_content["cache_control"] = msg["cache_control"]
+                    claude_messages.append(message_content)
+
+            # Use a model that supports extended thinking
+            # claude-sonnet-4-20250514 or claude-3-5-sonnet-20241022
+            thinking_model = kwargs.get("model", "claude-sonnet-4-20250514")
+
+            logger.info(
+                "Using extended thinking mode",
+                model=thinking_model,
+                thinking_budget=thinking_budget
+            )
+
+            # Claude API call with extended thinking
+            response = await self.client.messages.create(
+                model=thinking_model,
+                max_tokens=16000,  # Extended for thinking + response
+                temperature=1.0,  # Required for extended thinking
+                thinking={
+                    "type": "enabled",
+                    "budget_tokens": thinking_budget
+                },
+                system=system_message if system_message else "You are a helpful CRM assistant.",
+                messages=claude_messages
+            )
+
+            # Extract thinking and response from content blocks
+            thinking_content = ""
+            response_content = ""
+
+            for block in response.content:
+                if block.type == "thinking":
+                    thinking_content = block.thinking
+                elif block.type == "text":
+                    response_content = block.text
+
+            logger.info(
+                "Extended thinking completed",
+                thinking_length=len(thinking_content),
+                response_length=len(response_content)
+            )
+
+            return {
+                "response": response_content,
+                "thinking": thinking_content,
+                "used_thinking": True,
+                "model": thinking_model
+            }
+
+        except TypeError as e:
+            # SDK version doesn't support 'thinking' parameter
+            if "thinking" in str(e):
+                logger.warning(
+                    "Extended thinking not supported by current Anthropic SDK version. "
+                    "Upgrade anthropic package to 0.49.0+ for extended thinking support.",
+                    error=str(e)
+                )
+            else:
+                logger.error("Claude extended thinking TypeError", error=str(e))
+            # Fall back to regular generation
+            regular_response = await self.generate_response(messages, **kwargs)
+            return {
+                "response": regular_response,
+                "thinking": None,
+                "used_thinking": False,
+                "fallback": True,
+                "fallback_reason": "SDK does not support extended thinking"
+            }
+        except Exception as e:
+            logger.error("Claude extended thinking error", error=str(e))
+            # Fall back to regular generation
+            logger.info("Falling back to regular response generation")
+            regular_response = await self.generate_response(messages, **kwargs)
+            return {
+                "response": regular_response,
+                "thinking": None,
+                "used_thinking": False,
+                "fallback": True,
+                "fallback_reason": str(e)
+            }
 
     def get_provider_name(self) -> str:
         return "claude"
@@ -279,12 +395,152 @@ class AIService:
                 "error": str(e)
             }
 
+    async def generate_response_with_thinking(
+        self,
+        messages: List[Dict[str, str]],
+        thinking_budget: int = 10000,
+        provider: Optional[str] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Generate AI response with extended thinking mode (Claude only).
+
+        Extended thinking enables deeper reasoning for complex tasks like:
+        - Ambiguous intent resolution
+        - Multi-step planning
+        - Complex entity disambiguation
+        - Low confidence situations
+
+        Args:
+            messages: List of message dicts with 'role' and 'content' keys
+            thinking_budget: Max tokens for thinking (default 10000)
+            provider: Specific provider to use (optional, defaults to Claude)
+            **kwargs: Additional parameters for the AI provider
+
+        Returns:
+            Dict with response, thinking content (if available), and metadata
+        """
+        provider_name = provider or self.default_provider
+
+        # Extended thinking only works with Claude
+        if provider_name != "claude" or "claude" not in self.providers:
+            logger.info("Extended thinking requested but provider is not Claude, using regular generation")
+            return await self.generate_response(messages, provider=provider_name, **kwargs)
+
+        start_time = datetime.utcnow()
+
+        try:
+            claude_provider = self.providers["claude"]
+            result = await claude_provider.generate_response_with_thinking(
+                messages,
+                thinking_budget=thinking_budget,
+                **kwargs
+            )
+
+            end_time = datetime.utcnow()
+            duration = (end_time - start_time).total_seconds()
+
+            return {
+                "response": result["response"],
+                "thinking": result.get("thinking"),
+                "used_thinking": result.get("used_thinking", False),
+                "provider": "claude",
+                "timestamp": end_time.isoformat(),
+                "duration_seconds": duration,
+                "success": True
+            }
+
+        except Exception as e:
+            end_time = datetime.utcnow()
+            duration = (end_time - start_time).total_seconds()
+
+            logger.error(
+                "Extended thinking generation failed",
+                provider="claude",
+                error=str(e),
+                duration=duration
+            )
+
+            # Fall back to regular generation
+            logger.info("Falling back to regular response generation after thinking failure")
+            return await self.generate_response(messages, provider="claude", **kwargs)
+
+    def _should_use_extended_thinking(
+        self,
+        confidence: float,
+        has_clarification: bool,
+        conversation_length: int,
+        user_message: str
+    ) -> bool:
+        """
+        Determine if extended thinking should be used for this request.
+
+        Conditions for extended thinking:
+        1. Low confidence (< 0.7) - ambiguous intent
+        2. Pending clarifications - user didn't provide enough info
+        3. Long conversations (> 20 messages) - complex context
+
+        Args:
+            confidence: Intent detection confidence (0.0 to 1.0)
+            has_clarification: Whether clarification is needed
+            conversation_length: Number of messages in conversation
+            user_message: The user's current message
+
+        Returns:
+            True if extended thinking should be used
+        """
+        # Condition 1: Low confidence in intent detection
+        if confidence < 0.7:
+            logger.info(
+                "Using extended thinking: low confidence",
+                confidence=confidence
+            )
+            return True
+
+        # Condition 2: Clarification needed
+        if has_clarification:
+            logger.info("Using extended thinking: clarification pending")
+            return True
+
+        # Condition 3: Long conversation (complex context)
+        if conversation_length > 20:
+            logger.info(
+                "Using extended thinking: long conversation",
+                message_count=conversation_length
+            )
+            return True
+
+        # Condition 4: Complex references in user message
+        complex_reference_patterns = [
+            "the one",
+            "that one",
+            "first one",
+            "second one",
+            "third one",
+            "last one",
+            "the email about",
+            "the contact from",
+            "the project with",
+        ]
+        message_lower = user_message.lower()
+        for pattern in complex_reference_patterns:
+            if pattern in message_lower:
+                logger.info(
+                    "Using extended thinking: complex reference detected",
+                    pattern=pattern
+                )
+                return True
+
+        return False
+
     async def generate_crm_response(
         self,
         user_message: str,
         user_context: Dict[str, Any],
         conversation_history: List[Dict[str, str]] = None,
-        provider: Optional[str] = None
+        provider: Optional[str] = None,
+        confidence: float = 1.0,
+        has_clarification: bool = False
     ) -> Dict[str, Any]:
         """
         Generate CRM-specific response with intelligent context management.
@@ -294,12 +550,15 @@ class AIService:
         - Token-aware context window sizing
         - Data payload preservation
         - Follow-up question support
+        - Extended thinking for complex situations (Claude only)
 
         Args:
             user_message: The user's message/command
             user_context: Context about the user (name, recent data, etc.)
             conversation_history: Previous messages in conversation
             provider: AI provider to use
+            confidence: Intent detection confidence (0.0 to 1.0)
+            has_clarification: Whether clarification is pending
 
         Returns:
             AI response with CRM context
@@ -439,31 +698,33 @@ Examples:
 
 Always trust the data I provide - never guess or estimate. Be helpful, warm, and conversational like Claude AI."""
 
-        # Build message history with tiered context management
+        # Build message history with smart context pruning
+        from .conversation_memory import SmartContextPruner
+
         messages = [{"role": "system", "content": system_prompt}]
+
+        # Use 8000 tokens for conversation history, leaving room for system prompt and response
+        context_budget = 8000
 
         # Get adaptive context size based on conversation length
         if conversation_history:
-            context_size = self._get_adaptive_context_size(len(conversation_history))
+            # Use smart pruning for any conversation
+            pruned_history, tokens_used, was_pruned = SmartContextPruner.prune_messages(
+                conversation_history,
+                max_tokens=context_budget,
+                preserve_recent=min(15, len(conversation_history))  # Keep up to 15 recent
+            )
 
-            # Use tiered context management if conversation is long
-            if len(conversation_history) > 20:
-                filtered_history, was_compressed = conversation_memory.get_tiered_context(
-                    conversation_history,
-                    max_tokens=8000
-                )
-
+            if was_pruned:
                 logger.info(
-                    "Applied tiered context management",
-                    original_size=len(conversation_history),
-                    filtered_size=len(filtered_history),
-                    was_compressed=was_compressed
+                    "Applied smart context pruning",
+                    original_messages=len(conversation_history),
+                    pruned_messages=len(pruned_history),
+                    tokens_used=tokens_used,
+                    budget=context_budget
                 )
 
-                messages.extend(filtered_history)
-            else:
-                # For shorter conversations, use all messages
-                messages.extend(conversation_history[-context_size:])
+            messages.extend(pruned_history)
         else:
             conversation_history = []
 
@@ -479,15 +740,42 @@ Always trust the data I provide - never guess or estimate. Be helpful, warm, and
         # Estimate total tokens (rough)
         total_tokens = sum(conversation_memory.estimate_tokens(msg.get("content", "")) for msg in messages)
 
+        # Determine conversation length for extended thinking check
+        conversation_length = len(conversation_history) if conversation_history else 0
+
+        # Check if extended thinking should be used
+        use_thinking = self._should_use_extended_thinking(
+            confidence=confidence,
+            has_clarification=has_clarification,
+            conversation_length=conversation_length,
+            user_message=user_message
+        )
+
         logger.info(
             "Generating CRM response",
             message_count=len(messages),
             estimated_tokens=total_tokens,
-            provider=provider or self.default_provider
+            provider=provider or self.default_provider,
+            use_extended_thinking=use_thinking,
+            confidence=confidence
         )
 
-        # Generate response
-        return await self.generate_response(messages, provider=provider)
+        # Generate response - use extended thinking for complex situations
+        if use_thinking and (provider or self.default_provider) == "claude":
+            # Adjust thinking budget based on complexity
+            thinking_budget = 10000
+            if conversation_length > 30:
+                thinking_budget = 15000  # More thinking for very long conversations
+            elif confidence < 0.5:
+                thinking_budget = 12000  # More thinking for very low confidence
+
+            return await self.generate_response_with_thinking(
+                messages,
+                thinking_budget=thinking_budget,
+                provider="claude"
+            )
+        else:
+            return await self.generate_response(messages, provider=provider)
 
     def _get_adaptive_context_size(self, conversation_length: int) -> int:
         """
@@ -509,23 +797,15 @@ Always trust the data I provide - never guess or estimate. Be helpful, warm, and
     def _get_integration_capabilities_text(self, user_context: Dict[str, Any]) -> str:
         """Generate text describing user's connected integration capabilities."""
 
-        # Check if user has integration context
-        user = user_context.get('user')
-        if not user or not hasattr(user, 'integrations'):
-            return "- No external integrations connected. Connect Microsoft 365 in Settings to access email, calendar, and files."
-
         capabilities = []
 
-        # Check for Microsoft 365 integration
-        ms365_integration = None
-        for integration in user.integrations:
-            if integration.service_type == "microsoft365" and integration.is_connected:
-                ms365_integration = integration
-                break
+        # Check explicit integration status first (passed from chat.py)
+        integrations = user_context.get('integrations', {})
+        ms365_status = integrations.get('microsoft365', {})
 
-        if ms365_integration:
+        if ms365_status.get('connected'):
             ms365_capabilities = []
-            if ms365_integration.sync_emails:
+            if ms365_status.get('sync_emails'):
                 ms365_capabilities.extend([
                     "retrieve and search your Outlook emails (including body content)",
                     "get your latest/most recent email",
@@ -534,11 +814,11 @@ Always trust the data I provide - never guess or estimate. Be helpful, warm, and
                     "send emails",
                     "create drafts"
                 ])
-            if ms365_integration.sync_calendars:
+            if ms365_status.get('sync_calendars'):
                 ms365_capabilities.extend([
                     "view calendar events", "create meetings", "schedule events"
                 ])
-            if ms365_integration.sync_files:
+            if ms365_status.get('sync_files'):
                 ms365_capabilities.extend([
                     "search SharePoint documents", "access OneDrive files", "list Teams files"
                 ])
@@ -546,6 +826,35 @@ Always trust the data I provide - never guess or estimate. Be helpful, warm, and
             if ms365_capabilities:
                 capabilities.append(f"- Microsoft 365 Connected: I can {', '.join(ms365_capabilities)}")
                 capabilities.append("  Note: I have full access to your Microsoft 365 data through secure integration.")
+            else:
+                # MS365 is connected but no sync options enabled
+                capabilities.append("- Microsoft 365 Connected: Basic access enabled. Enable email/calendar/files sync in Settings for full capabilities.")
+
+        # Fallback: check user object directly (for backward compatibility)
+        if not capabilities:
+            user = user_context.get('user')
+            if user and hasattr(user, 'integrations') and user.integrations:
+                for integration in user.integrations:
+                    if integration.service_type == "microsoft365" and integration.is_connected:
+                        ms365_capabilities = []
+                        if integration.sync_emails:
+                            ms365_capabilities.extend([
+                                "retrieve and search your Outlook emails",
+                                "get your latest/most recent email",
+                                "send emails"
+                            ])
+                        if integration.sync_calendars:
+                            ms365_capabilities.extend([
+                                "view calendar events", "create meetings"
+                            ])
+                        if integration.sync_files:
+                            ms365_capabilities.extend([
+                                "search SharePoint documents", "access OneDrive files"
+                            ])
+
+                        if ms365_capabilities:
+                            capabilities.append(f"- Microsoft 365 Connected: I can {', '.join(ms365_capabilities)}")
+                        break
 
         if not capabilities:
             return "- No external integrations connected. Connect Microsoft 365 in Settings to access email, calendar, and files."

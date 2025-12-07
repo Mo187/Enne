@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
 
-    # MCP Integration
-    mcp_microsoft365_url: str = "http://host.docker.internal:8001"
+    # MCP Integration (override via MCP_MICROSOFT365_URL env var for Railway)
+    mcp_microsoft365_url: str = "http://localhost:8001"
     mcp_timeout_seconds: int = 30
     mcp_retry_attempts: int = 3
     mcp_connection_pool_size: int = 10

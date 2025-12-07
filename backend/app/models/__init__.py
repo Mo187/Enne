@@ -4,6 +4,7 @@ from .organization import Organization
 from .project import Project
 from .task import Task
 from .integration import Integration
+from .conversation import Conversation, ConversationMessage, EntityTracking, ImportanceScores, ENTITY_TYPES
 
 __all__ = [
     "User",
@@ -11,5 +12,10 @@ __all__ = [
     "Organization",
     "Project",
     "Task",
-    "Integration"
+    "Integration",
+    "Conversation",
+    "ConversationMessage",
+    "EntityTracking",
+    "ImportanceScores",
+    "ENTITY_TYPES"
 ]

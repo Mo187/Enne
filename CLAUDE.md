@@ -152,3 +152,48 @@ POST   /api/integrations/connect - Connect external service
 - Chat context overflow
 - Integration authentication failures
 - Offline functionality requirements
+
+---
+
+## Implementation Status & Architecture Notes
+
+### Conversation Memory (Database-Backed)
+- **Models**: `Conversation`, `ConversationMessage`, `EntityTracking` in `backend/app/models/conversation.py`
+- **Service**: `PersistentConversationMemory` in `backend/app/services/conversation_memory.py`
+- **Features**: Cross-session persistence, entity tracking with positions, smart pruning, tiktoken token counting
+
+### LLM Command Parser
+- **File**: `backend/app/services/llm_command_parser.py`
+- **Features**: Semantic intent detection, synonym support, `contact_name` entity for updates
+- **Intents**: CRUD for contacts/orgs/projects/tasks + MS365 email/calendar/files
+- **Prompt Version**: `v3.0_optimized` (~70 lines, 73% smaller than v2.x)
+
+### MCP Integration (Microsoft 365)
+- **Adapter**: `backend/app/integrations/mcp_tool_adapter.py`
+- **Client**: `backend/app/integrations/mcp_client.py`
+- **Server**: `365mcp/` (separate process)
+- **Tools**: outlook_*, sharepoint_*, onedrive_*, teams_*
+
+### Extended Thinking (Claude)
+- **File**: `backend/app/services/ai_service.py`
+- **Triggers**: Low confidence (<0.7), clarifications pending, long conversations (>20 msgs)
+- **SDK**: Requires anthropic>=0.49.0
+
+### Recent Fixes (Nov 2024)
+| Fix | Description | File |
+|-----|-------------|------|
+| "list them" follow-up | Added list/show/display/get/fetch to action words | `llm_command_parser.py` |
+| Partial name matching | Task creation uses `%name%` with clarification for multiple matches | `chat.py` |
+| Email follow-up tool | Pre-parse intercept for affirmatives after email offers | `chat.py` |
+| Contact update by name | Parser uses `contact_name` entity to find contact | `llm_command_parser.py` |
+| MS365 awareness | AI system prompt includes user's connected integrations | `ai_service.py` |
+| Extended thinking SDK | Upgraded to anthropic>=0.49.0 | `requirements.txt` |
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `backend/app/api/v1/chat.py` | Main chat endpoint, action execution, entity tracking |
+| `backend/app/services/ai_service.py` | AI providers, system prompt, extended thinking |
+| `backend/app/services/llm_command_parser.py` | Intent/entity extraction from natural language |
+| `backend/app/services/conversation_memory.py` | Persistent memory with smart context pruning |
+| `backend/app/integrations/mcp_tool_adapter.py` | MCP tool schemas and validation |

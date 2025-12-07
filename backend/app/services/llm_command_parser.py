@@ -77,7 +77,8 @@ class LLMCommandParser:
         self,
         text: str,
         user_context: Dict[str, Any] = None,
-        conversation_history: List[Dict[str, str]] = None
+        conversation_history: List[Dict[str, str]] = None,
+        recent_entities: Dict[str, List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Parse natural language command using LLM
@@ -86,6 +87,8 @@ class LLMCommandParser:
             text: Natural language command from user
             user_context: Optional context about the user
             conversation_history: Optional conversation history for follow-up detection
+            recent_entities: Optional dict of recently discussed entities for context-aware parsing
+                             Format: {"contacts": [{"name": "Gabriel", "id": 1}, ...], "projects": [...]}
 
         Returns:
             Dict with intent, entities, and confidence
@@ -109,7 +112,7 @@ class LLMCommandParser:
             }
 
         # Build prompt for LLM to extract intent and entities
-        prompt = self._build_extraction_prompt()
+        prompt = self._build_extraction_prompt(recent_entities)
 
         try:
             # Use Claude/GPT to extract structured data with caching
@@ -136,417 +139,98 @@ class LLMCommandParser:
                 "raw_text": text
             }
 
-    def _build_extraction_prompt(self) -> str:
-        """Build cached prompt for LLM to extract intent and entities"""
+    def _build_extraction_prompt(self, recent_entities: Optional[Dict[str, List[Dict[str, Any]]]] = None) -> str:
+        """Build prompt for LLM to extract intent and entities, with optional context injection"""
 
-        # Use cached prompt if available
-        if self.cached_system_prompt:
-            return self.cached_system_prompt
+        base_prompt = """You are an expert at understanding CRM commands. Extract INTENT and ENTITIES from user input.
 
-        prompt = """You are an expert at understanding CRM (Customer Relationship Management) commands.
+ACTION SYNONYMS:
+- CREATE: add, create, new, make, register
+- UPDATE: update, change, modify, edit, set, add [field] to
+- DELETE: delete, remove, drop, erase
+- SEARCH: find, search, look for, show me [specific]
+- LIST: list, show all, display all, how many
 
-Your task is to extract the INTENT and ENTITIES from user commands, using natural language understanding.
+AVAILABLE INTENTS:
+Contacts: create_contact, update_contact, delete_contact, search_contacts, list_contacts
+Organizations: create_organization, update_organization, delete_organization, search_organizations, list_organizations
+Projects: create_project, update_project, delete_project, search_projects, list_projects
+Tasks: create_task, update_task, delete_task, search_tasks, list_tasks
+Email: send_email, search_emails, read_email, get_latest_email, get_new_emails, create_draft, list_folders
+Calendar: get_calendar_events, create_meeting, schedule_meeting
+Files: list_sharepoint_sites, search_sharepoint_documents, list_onedrive_files, list_teams, list_team_files, extract_document_content
+Auth: connect_microsoft365, authenticate_microsoft365
+Other: export_data, get_stats, help, unknown, clarification_response
 
-CRITICAL: Recognize natural language variations for actions:
-- CREATE: "add", "create", "new", "register", "make", "set up"
-- UPDATE: "update", "change", "modify", "edit", "alter", "fix", "correct", "set"
-- DELETE: "delete", "remove", "drop", "erase", "get rid of", "eliminate"
-- SEARCH: "find", "search", "look for", "show me", "get", "retrieve", "display"
-- LIST: "list", "show all", "display all", "what are my", "how many"
+LIST vs SEARCH:
+- list_* = ALL items, no filter ("how many contacts", "show all projects")
+- search_* = FILTERED items ("contacts named John", "completed projects")
 
-IMPORTANT: Commands without explicit action words should infer intent from context:
-- "Luke" or "Delete Luke" or "Remove Luke" → delete_contact (if Luke exists in context)
-- "Mike's email is new@email.com" → update_contact
-- "Add John Smith" → create_contact
-- "Contact for Sarah" → create_contact
+ENTITY FIELDS:
+- name: Full name (new contacts) | contact_name: Contact being updated
+- email, phone, job_position, organization, industry, website
+- project_name, task_name, status, priority, assignee, due_date, description
+- email_to, email_subject, email_body, email_folder
+- meeting_subject, meeting_start, meeting_end, meeting_attendees
+- search_query, document_path, site_name, team_name
 
-Available intents:
-- create_contact: User wants to add a new contact
-- update_contact: User wants to modify existing contact
-- delete_contact: User wants to remove a contact
-- search_contacts: User wants to find specific contacts
-- list_contacts: User wants to see all/filtered contacts
-- create_organization: User wants to add a new company/organization
-- update_organization: User wants to modify existing organization
-- delete_organization: User wants to remove an organization
-- search_organizations: User wants to find specific organizations
-- list_organizations: User wants to see all/filtered organizations
-- create_project: User wants to create a new project
-- update_project: User wants to modify existing project
-- delete_project: User wants to remove a project
-- search_projects: User wants to find projects
-- list_projects: User wants to see all/filtered projects
-- create_task: User wants to create a new task
-- update_task: User wants to modify existing task
-- delete_task: User wants to remove a task
-- search_tasks: User wants to find tasks
-- list_tasks: User wants to see all/filtered tasks
-- export_data: User wants to export data to file
-- get_stats: User wants statistics/analytics
-- help: User needs help/instructions
-- unknown: Intent cannot be determined
-- send_email: User wants to send an email
-- search_emails: User wants to find, view, list, show, retrieve, or access emails (includes generic requests like "show my emails", "get my recent emails")
-- read_email: User wants to read a specific email
-- get_latest_email: User specifically wants the most recent, latest, or newest email
-- get_new_emails: User wants unread, new, or unseen emails
-- create_draft: User wants to create an email draft
-- list_folders: User wants to see email folders
-- get_calendar_events: User wants to see calendar events
-- create_meeting: User wants to create/schedule a meeting
-- schedule_meeting: User wants to schedule a meeting (alias for create_meeting)
-- join_meeting: User wants to join a meeting
-- list_sharepoint_sites: User wants to see SharePoint sites
-- search_sharepoint_documents: User wants to find SharePoint documents
-- upload_sharepoint_document: User wants to upload a file to SharePoint
-- share_document: User wants to share a document
-- list_onedrive_files: User wants to see OneDrive files
-- upload_onedrive_file: User wants to upload a file to OneDrive
-- list_teams: User wants to see Microsoft Teams
-- list_team_files: User wants to see files in Teams channels
-- extract_document_content: User wants to extract text from a document
-- connect_microsoft365: User wants to connect Microsoft 365 account
-- authenticate_microsoft365: User wants to authenticate with Microsoft 365
+OUTPUT FORMAT (JSON only):
+{{"intent": "intent_name", "entities": {{"field": "value"}}, "confidence": 0.95}}
 
-CRITICAL: Distinguish between list and search intents:
-- list_* : User wants ALL items or a count of ALL items (no specific criteria)
-- search_* : User wants to find SPECIFIC items with criteria/filters
+EXAMPLES:
 
-Examples:
-- "How many contacts do I have" → list_contacts (wants total count of all contacts)
-- "How many contacts called Gabriel" → search_contacts (wants filtered count with criteria)
-- "Show all organizations" → list_organizations (wants all organizations)
-- "Show tech organizations" → search_organizations (wants filtered organizations)
-- "List my projects" → list_projects (wants all user's projects)
-- "Find completed projects" → search_projects (wants projects with status filter)
+Input: "Create contact John Smith with email john@test.com"
+Output: {{"intent": "create_contact", "entities": {{"name": "John Smith", "email": "john@test.com"}}, "confidence": 0.95}}
 
-For ENTITIES, extract these fields when relevant:
-- name: Person's full name
-- email: Email address
-- phone: Phone number
-- job_position: Job title/position
-- organization: Company/organization name
-- industry: Business industry/sector
-- website: Website URL
-- search_query: What to search for
-- export_format: csv, excel, etc.
-- project_name: Name of project
-- task_name: Name of task
-- due_date: Date information (absolute dates or relative like 'tomorrow', 'next week')
-- start_date: Start date information
-- priority: high, medium, low, urgent
-- status: For projects: planned, in_progress, completed, on_hold, cancelled
-- status: For tasks: pending, in_progress, completed, blocked, cancelled
-- assignee: Person assigned to task
-- description: Detailed description
-- notes: Additional notes
-- organization_id: Organization associated with project
-- project_id: Project associated with task
-- email_to: Email recipient address
-- email_cc: Email CC recipients
-- email_bcc: Email BCC recipients
-- email_subject: Email subject line
-- email_body: Email message content
-- email_folder: Email folder name (inbox, sent, etc.)
-- meeting_subject: Meeting title/subject
-- meeting_start: Meeting start time
-- meeting_end: Meeting end time
-- meeting_attendees: Meeting participants
-- meeting_location: Meeting location or Teams link
-- document_path: File or document path
-- folder_name: Folder or directory name
-- file_name: Name of file
-- search_query: Search terms for finding items
-- site_name: SharePoint site name
-- library_name: Document library name
-- team_name: Microsoft Teams team name
-- channel_name: Teams channel name
-
-IMPORTANT: Respond with ONLY a valid JSON object in this exact format:
-{{
-  "intent": "intent_name",
-  "entities": {{
-    "field_name": "extracted_value"
-  }},
-  "confidence": 0.95
-}}
-
-Examples:
-
-Input: "Create a contact named Luke with email luke@email.com"
-Output: {{
-  "intent": "create_contact",
-  "entities": {{
-    "name": "Luke",
-    "email": "luke@email.com"
-  }},
-  "confidence": 0.95
-}}
-
-Input: "Create a contact called Wesley Waka, his phone number is 1234567890"
-Output: {{
-  "intent": "create_contact",
-  "entities": {{
-    "name": "Wesley Waka",
-    "phone": "1234567890"
-  }},
-  "confidence": 0.95
-}}
-
-Input: "Add Sarah Johnson as a contact, her email is sarah@email.com"
-Output: {{
-  "intent": "create_contact",
-  "entities": {{
-    "name": "Sarah Johnson",
-    "email": "sarah@email.com"
-  }},
-  "confidence": 0.95
-}}
-
-Input: "Update Gabriel's phone number to 123456789"
-Output: {{
-  "intent": "update_contact",
-  "entities": {{
-    "name": "Gabriel",
-    "phone": "123456789"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "update his phone to 555-1234"
-Output: {{
-  "intent": "update_contact",
-  "entities": {{
-    "name": "him",
-    "phone": "555-1234"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "add his email which is test@example.com"
-Output: {{
-  "intent": "update_contact",
-  "entities": {{
-    "name": "him",
-    "email": "test@example.com"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "update his name to Wesley Waka"
-Output: {{
-  "intent": "update_contact",
-  "entities": {{
-    "name": "Wesley Waka"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "change her name to Sarah Miller"
-Output: {{
-  "intent": "update_contact",
-  "entities": {{
-    "name": "Sarah Miller"
-  }},
-  "confidence": 0.9
-}}
+Input: "Update Gabriel's phone to 555-1234" (or "add phone 555-1234 to Gabriel")
+Output: {{"intent": "update_contact", "entities": {{"contact_name": "Gabriel", "phone": "555-1234"}}, "confidence": 0.9}}
 
 Input: "Delete Luke"
-Output: {{
-  "intent": "delete_contact",
-  "entities": {{
-    "name": "Luke"
-  }},
-  "confidence": 0.95
-}}
-
-Input: "Search for contacts named John"
-Output: {{
-  "intent": "search_contacts",
-  "entities": {{
-    "search_query": "John"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Create organization Acme Corp"
-Output: {{
-  "intent": "create_organization",
-  "entities": {{
-    "name": "Acme Corp"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "update its website to example.com"
-Output: {{
-  "intent": "update_organization",
-  "entities": {{
-    "name": "it",
-    "website": "example.com"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Delete Acme Corp organization"
-Output: {{
-  "intent": "delete_organization",
-  "entities": {{
-    "name": "Acme Corp"
-  }},
-  "confidence": 0.9
-}}
+Output: {{"intent": "delete_contact", "entities": {{"name": "Luke"}}, "confidence": 0.95}}
 
 Input: "Create project Website Redesign for Acme Corp"
-Output: {{
-  "intent": "create_project",
-  "entities": {{
-    "project_name": "Website Redesign",
-    "organization_id": "Acme Corp"
-  }},
-  "confidence": 0.9
-}}
+Output: {{"intent": "create_project", "entities": {{"project_name": "Website Redesign", "organization_id": "Acme Corp"}}, "confidence": 0.9}}
 
-Input: "Update Website Redesign status to completed"
-Output: {{
-  "intent": "update_project",
-  "entities": {{
-    "project_name": "Website Redesign",
-    "status": "completed"
-  }},
-  "confidence": 0.9
-}}
+Input: "Add task Review Docs to Website project"
+Output: {{"intent": "create_task", "entities": {{"task_name": "Review Docs", "project_name": "Website"}}, "confidence": 0.9}}
 
-Input: "Delete Website Redesign project"
-Output: {{
-  "intent": "delete_project",
-  "entities": {{
-    "project_name": "Website Redesign"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Create task Review Documentation"
-Output: {{
-  "intent": "create_task",
-  "entities": {{
-    "task_name": "Review Documentation"
-  }},
-  "confidence": 0.9
-}}
-
-Input: "Update task status to completed"
-Output: {{
-  "intent": "update_task",
-  "entities": {{
-    "status": "completed"
-  }},
-  "confidence": 0.85
-}}
-
-Input: "Do I have any emails from momoagoumar@gmail.com?"
-Output: {{
-  "intent": "search_emails",
-  "entities": {{
-    "search_query": "momoagoumar@gmail.com"
-  }},
-  "confidence": 0.95
-}}
+Input: "Do I have emails from john@example.com?"
+Output: {{"intent": "search_emails", "entities": {{"search_query": "john@example.com"}}, "confidence": 0.95}}
 
 Input: "Show me my latest email"
-Output: {{
-  "intent": "get_latest_email",
-  "entities": {{}},
-  "confidence": 0.9
-}}
+Output: {{"intent": "get_latest_email", "entities": {{}}, "confidence": 0.9}}
 
-Input: "Any new emails?"
-Output: {{
-  "intent": "get_new_emails",
-  "entities": {{}},
-  "confidence": 0.9
-}}
+Input: "yes" / "please do" / "go ahead" / "show it" (after AI offered to show email)
+Output: {{"intent": "get_latest_email", "entities": {{}}, "confidence": 0.95}}
 
-Input: "Send email to john@example.com"
-Output: {{
-  "intent": "send_email",
-  "entities": {{
-    "email_to": "john@example.com"
-  }},
-  "confidence": 0.9
-}}
+Input: "Gabriel Jones" (after "Which Gabriel did you mean?")
+Output: {{"intent": "clarification_response", "entities": {{"selected_name": "Gabriel Jones"}}, "confidence": 0.95}}
 
-Input: "Gabriel Jones"
-Output: {{
-  "intent": "clarification_response",
-  "entities": {{
-    "selected_name": "Gabriel Jones"
-  }},
-  "confidence": 0.95
-}}
+CRITICAL RULES:
+1. Email confirmation (yes/sure/ok after email offer) → get_latest_email, NEVER extract_document_content
+2. extract_document_content is ONLY for SharePoint/OneDrive files, NOT emails
+3. Pronouns (him/her/it) in updates → use as contact_name, let system resolve
+4. Partial names OK ("Gabriel" matches "Gabriel Kajero")
+5. "How many X called Y" → search_X with search_query: "Y" """
 
-Input: "yes" (after being asked if user wants full email retrieval)
-Output: {{
-  "intent": "get_latest_email",
-  "entities": {{}},
-  "confidence": 0.85
-}}
+        # Inject conversation context if available
+        if recent_entities:
+            context_lines = ["\n\nCONVERSATION CONTEXT (recently discussed entities):"]
+            for entity_type, entities in recent_entities.items():
+                if entities:
+                    names = [e.get("name", "Unknown") for e in entities[:5]]
+                    context_lines.append(f"- {entity_type}: {', '.join(names)}")
 
-Input: "yes" (after being asked if user wants email details)
-Output: {{
-  "intent": "get_latest_email",
-  "entities": {{}},
-  "confidence": 0.95
-}}
+            context_lines.append("""
+CONTEXT-AWARE RULES:
+- If user mentions a name from the context above without specifying type, INFER the entity type
+- Example: If "Gabriel" is in contacts context and user says "update Gabriel with email x@y.com" → update_contact
+- Example: If "Acme Corp" is in organizations context and user says "delete Acme Corp" → delete_organization
+- Names in context should be matched even with partial matches (e.g., "Gabriel" matches "Gabriel Kajero")
+""")
+            base_prompt += "\n".join(context_lines)
 
-Input: "yes please" (after being offered to show email)
-Output: {{
-  "intent": "get_latest_email",
-  "entities": {{}},
-  "confidence": 0.95
-}}
-
-Input: "sure" (after email retrieval offer)
-Output: {{
-  "intent": "get_latest_email",
-  "entities": {{}},
-  "confidence": 0.9
-}}
-
-Input: "ok" (after being asked about showing email)
-Output: {{
-  "intent": "get_latest_email",
-  "entities": {{}},
-  "confidence": 0.9
-}}
-
-Input: "yeah" (after email summary offer)
-Output: {{
-  "intent": "get_latest_email",
-  "entities": {{}},
-  "confidence": 0.9
-}}
-
-Input: "show it" (after finding emails)
-Output: {{
-  "intent": "get_latest_email",
-  "entities": {{}},
-  "confidence": 0.95
-}}
-
-IMPORTANT NOTES:
-- For updates/searches, accept PARTIAL NAMES (e.g., "Gabriel" could match "Gabriel Kajero")
-- Extract the most specific identifier available (name, email, project name, etc.)
-- Be confident about common update/search patterns even with partial information
-- When updating, include the identifier field and the fields being updated
-- For counting/filtering questions, extract the entity name being searched for
-- Questions like "How many X called Y" → search_X with search_query: "Y"
-- Questions like "Count X with status Y" → search_X with status: "Y"
-- For clarification responses after multiple matches, detect simple name responses
-- "Gabriel Jones" after asking "Which Gabriel?" → clarification_response with selected_name"""
-
-        self.cached_system_prompt = prompt
-        return prompt
+        return base_prompt
 
     def _parse_llm_response(self, response: str, original_text: str) -> Dict[str, Any]:
         """Parse and validate LLM response"""
@@ -639,12 +323,20 @@ IMPORTANT NOTES:
             }
 
         elif intent == "update_contact":
+            # Priority for identifier: contact_name > name > email
+            # contact_name is the contact being updated (e.g., "John Smith")
+            # name/email/phone are the NEW values being set
+            identifier = entities.get("contact_name") or entities.get("name") or entities.get("email")
+
+            # Build update data (exclude the identifier from updates)
+            update_data = {k: v for k, v in entities.items() if k != "contact_name" and v is not None}
+
             return {
                 "method": "PUT",
                 "endpoint": "/api/v1/contacts/update",
-                "data": entities,
-                "identifier": entities.get("name") or entities.get("email"),
-                "description": f"Update contact: {entities.get('name', 'Unknown')}"
+                "data": update_data,
+                "identifier": identifier,
+                "description": f"Update contact: {identifier or 'Unknown'}"
             }
 
         elif intent == "update_organization":
@@ -1210,14 +902,11 @@ IMPORTANT NOTES:
 
     def _is_follow_up_question(self, text: str, conversation_history: List[Dict[str, str]]) -> bool:
         """
-        Detect if this is a follow-up question to previous conversation.
+        Detect if this is a follow-up question using semantic understanding.
 
-        Enhanced version that tracks:
-        - Email references
-        - Contact references
-        - Project/task references
-        - Pronoun usage ("it", "that one", "the first one")
-        - Generic follow-up patterns
+        This method uses a combination of:
+        1. Quick checks for obvious action patterns (retrieval, CRUD)
+        2. Semantic analysis for follow-up questions about previous data
 
         Args:
             text: Current user message
@@ -1226,129 +915,100 @@ IMPORTANT NOTES:
         Returns:
             True if this is a follow-up question, False otherwise
         """
-        # Check if this is an email retrieval ACTION (not a follow-up question)
-        # User says "yes", "retrieve it", "get it", etc. after AI offered to retrieve
-        retrieval_action_indicators = [
+        text_lower = text.lower().strip()
+
+        # =====================================================
+        # QUICK PATH: Detect obvious ACTIONS (not follow-ups)
+        # =====================================================
+
+        # 1. Retrieval actions - user confirming they want to retrieve something
+        retrieval_patterns = [
             "retrieve it", "retrieve", "get it", "get the full",
             "show me the full", "show me the body", "show the body",
             "yes please", "yes get", "yes retrieve", "yes show",
-            "ok retrieve", "ok get", "okay get", "sure retrieve",
             "go ahead", "please retrieve", "please get"
         ]
 
-        text_lower = text.lower().strip()
-
-        # Short affirmative responses after email discussion = likely retrieval action
-        if text_lower in ["yes", "sure", "ok", "okay", "yeah", "yep", "please", "do it"]:
-            # Check if conversation mentioned emails recently
+        # Short affirmative responses after AI offer = action, not follow-up
+        if text_lower in ["yes", "sure", "ok", "okay", "yeah", "yep", "please", "do it", "go ahead"]:
             if conversation_history and len(conversation_history) > 0:
-                recent_messages = conversation_history[-3:]
-                for msg in recent_messages:
+                recent = conversation_history[-3:]
+                for msg in recent:
                     content = msg.get("content", "").lower()
-                    if any(indicator in content for indicator in [
-                        "retrieve", "full email", "full body", "full content",
-                        "body preview", "truncated", "would you like me to retrieve"
+                    if any(ind in content for ind in [
+                        "retrieve", "full email", "full body", "would you like",
+                        "do you want me to", "shall i", "want me to"
                     ]):
-                        # This is likely "yes" to retrieval offer, NOT a follow-up question
-                        return False  # Don't treat as follow-up, let it be parsed as action
+                        return False  # This is confirming an action
 
-        # Check if this is an explicit retrieval action
-        is_retrieval_action = any(indicator in text_lower for indicator in retrieval_action_indicators)
-        if is_retrieval_action:
-            # Check if conversation mentioned emails recently
-            if conversation_history and len(conversation_history) > 0:
-                recent_messages = conversation_history[-3:]
-                for msg in recent_messages:
-                    content = msg.get("content", "").lower()
-                    if any(indicator in content for indicator in ["email", "subject:", "from:", "inbox", "message"]):
-                        # This is an email retrieval action, not a follow-up question
-                        return False  # Don't treat as follow-up, let it be parsed as action
+        # Explicit retrieval action
+        if any(p in text_lower for p in retrieval_patterns):
+            return False  # Parse as action
 
-        # Universal follow-up indicators (applies to all entity types)
-        follow_up_indicators = [
-            # Email-specific (but NOT retrieval actions)
-            "that email", "the email", "this email", "those emails",
-            # Contact-specific
-            "that contact", "the contact", "this person", "him", "her",
-            # Project/task-specific
-            "that project", "the project", "that task", "the task",
-            # Organization-specific
-            "that organization", "that company", "the organization",
-            # Generic references
-            "that one", "this one", "it", "that", "this", "those",
-            "the one", "them", "the first one", "first one", "the second",
-            "the last one", "last one", "latest one",
-            # Content requests (passive, not active retrieval)
-            "tell me more", "what does it say",
-            "what's in it", "what about", "summarize it",
-            "what's the content", "what is it",
-            "from that", "from the", "about that", "about the", "about it",
-            # Follow-up actions
-            "more info", "additional details", "what else", "anything else",
-            "can you tell me", "do you know", "what do you know about"
+        # 2. CRUD action patterns - these should be parsed, not treated as follow-ups
+        crud_action_words = [
+            "create", "add", "new", "make", "register",
+            "update", "change", "modify", "edit", "set",
+            "delete", "remove", "drop", "erase",
+            "list", "show", "display", "get", "fetch"  # List/retrieval actions
         ]
 
-        # Check if message contains follow-up indicators
-        has_indicator = any(indicator in text_lower for indicator in follow_up_indicators)
+        # If message starts with or contains strong action verbs, it's likely an action
+        for action in crud_action_words:
+            if text_lower.startswith(action) or f" {action} " in f" {text_lower} ":
+                # Check if it's referencing something from context (e.g., "delete him")
+                if not any(ref in text_lower for ref in ["him", "her", "it", "that", "this", "the first", "the second"]):
+                    return False  # Likely a new action, not a follow-up
 
-        if not has_indicator:
+        # =====================================================
+        # SEMANTIC PATH: Detect follow-up questions
+        # =====================================================
+
+        # Check for pronoun/reference patterns that indicate follow-up
+        follow_up_patterns = [
+            # Pronouns referring to entities
+            r"\b(it|that|this|those|these|them)\b",
+            # Ordinal references
+            r"\b(first|second|third|last|latest|previous)\s*(one|email|contact|project|task|organization)?\b",
+            # Possessive references
+            r"\b(his|her|their|its)\s+(email|phone|name|address|status)\b",
+            # "The" + entity type (the email, the contact)
+            r"\bthe\s+(email|contact|project|task|organization|one)\b",
+            # Content questions about something discussed
+            r"\b(tell me more|what does it|what's in|summarize|explain|details about)\b",
+            # About/from references
+            r"\b(about that|about the|from that|from the|about it)\b",
+        ]
+
+        has_reference_pattern = any(re.search(p, text_lower) for p in follow_up_patterns)
+
+        if not has_reference_pattern:
+            return False  # No follow-up indicators found
+
+        # Verify there's relevant context in conversation history
+        if not conversation_history or len(conversation_history) == 0:
             return False
 
-        # Check if conversation history mentions relevant entities in recent messages
-        if conversation_history and len(conversation_history) > 0:
-            # Look at last 5 messages for entity-related content
-            recent_messages = conversation_history[-5:]
+        # Look for entity data in recent messages
+        recent_messages = conversation_history[-5:]
+        conversation_text = " ".join(msg.get("content", "").lower() for msg in recent_messages)
 
-            for msg in recent_messages:
-                content = msg.get("content", "").lower()
+        # Check if conversation has discussed entities
+        entity_evidence = [
+            "email", "contact", "project", "task", "organization",
+            "subject:", "from:", "name:", "status:", "priority:",
+            "found", "retrieved", "showing", "created", "updated"
+        ]
 
-                # Check if previous messages were about emails
-                email_indicators = [
-                    "email", "subject:", "from:", "inbox", "message",
-                    "received_date", "body content", "outlook", "sender"
-                ]
+        has_entity_context = any(evidence in conversation_text for evidence in entity_evidence)
 
-                # Check if previous messages were about contacts
-                contact_indicators = [
-                    "contact", "person", "name:", "phone:", "email:",
-                    "job_position", "organization:"
-                ]
-
-                # Check if previous messages were about projects
-                project_indicators = [
-                    "project", "status:", "priority:", "due date:",
-                    "planned", "in progress", "completed"
-                ]
-
-                # Check if previous messages were about tasks
-                task_indicators = [
-                    "task", "assignee:", "priority:", "pending",
-                    "blocked", "cancelled"
-                ]
-
-                # Check if previous messages were about organizations
-                org_indicators = [
-                    "organization", "company", "industry:", "website:"
-                ]
-
-                # Data payload indicators (suggests data was recently shown)
-                data_indicators = [
-                    "query result", "exact count", "found", "showing",
-                    "retrieved", "created successfully", "updated successfully"
-                ]
-
-                all_indicators = (
-                    email_indicators + contact_indicators + project_indicators +
-                    task_indicators + org_indicators + data_indicators
-                )
-
-                if any(indicator in content for indicator in all_indicators):
-                    logger.debug(
-                        "Follow-up detected: found entity reference in recent messages",
-                        text=text,
-                        matched_in_history=True
-                    )
-                    return True
+        if has_entity_context:
+            logger.debug(
+                "Follow-up detected: reference pattern with entity context",
+                text=text[:50],
+                has_pattern=has_reference_pattern
+            )
+            return True
 
         return False
 

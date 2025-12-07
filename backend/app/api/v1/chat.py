@@ -19,7 +19,10 @@ from ...services.ai_service import ai_service
 from ...services.llm_command_parser import llm_command_parser
 from ...services.tool_interface import tool_registry
 from ...integrations.mcp_client import get_mcp_client
-from ...services.conversation_memory import get_conversation_memory, clear_user_memory
+from ...services.conversation_memory import (
+    get_conversation_memory, clear_user_memory,
+    get_persistent_memory, PersistentConversationMemory
+)
 from ...services.clarification_manager import clarification_manager
 
 logger = structlog.get_logger()
@@ -334,10 +337,14 @@ async def execute_api_action(
 
             return {
                 "success": True,
+                "entity_type": "contact",
+                "action": "created",
                 "result": {
                     "id": contact.id,
                     "name": contact.name,
                     "email": contact.email,
+                    "phone": contact.phone,
+                    "job_position": contact.job_position,
                     "organization": contact.organization
                 },
                 "message": f"✓ CONFIRMED: Contact '{contact.name}' created successfully with ID {contact.id}"
@@ -453,10 +460,14 @@ async def execute_api_action(
 
             return {
                 "success": True,
+                "entity_type": "organization",
+                "action": "created",
                 "result": {
                     "id": organization.id,
                     "name": organization.name,
-                    "industry": organization.industry
+                    "industry": organization.industry,
+                    "website": organization.website,
+                    "email": organization.email
                 },
                 "message": f"✓ CONFIRMED: Organization '{organization.name}' created successfully with ID {organization.id}"
             }
@@ -603,11 +614,14 @@ async def execute_api_action(
 
             return {
                 "success": True,
+                "entity_type": "project",
+                "action": "created",
                 "result": {
                     "id": project.id,
                     "name": project.name,
                     "status": project.status,
-                    "priority": project.priority
+                    "priority": project.priority,
+                    "due_date": project.due_date.isoformat() if project.due_date else None
                 },
                 "message": f"✓ CONFIRMED: Project '{project.name}' created successfully with ID {project.id}"
             }
@@ -618,20 +632,39 @@ async def execute_api_action(
                 logger.warning("Task creation failed: name required", user_id=user.id)
                 return {"success": False, "error": "Task name is required"}
 
-            # Handle project lookup if specified
+            # Handle project lookup if specified (with partial matching)
             project_id = None
             project_name = data.get("project_name") or data.get("project")
             if project_name:
+                # Use partial matching to find projects
                 project_query = select(Project).where(
                     and_(
                         Project.user_id == user.id,
-                        Project.name.ilike(project_name)
+                        Project.name.ilike(f"%{project_name}%")
                     )
                 )
                 project_result = await db.execute(project_query)
-                project = project_result.scalar_one_or_none()
-                if project:
-                    project_id = project.id
+                projects = project_result.scalars().all()
+
+                if len(projects) == 1:
+                    # Exactly one match - use it
+                    project_id = projects[0].id
+                elif len(projects) > 1:
+                    # Multiple matches - ask for clarification
+                    matches = [{"id": p.id, "name": p.name} for p in projects]
+                    logger.info(
+                        "Multiple projects match",
+                        project_name=project_name,
+                        matches=[p.name for p in projects],
+                        user_id=user.id
+                    )
+                    return {
+                        "success": False,
+                        "requires_clarification": True,
+                        "clarification_type": "project",
+                        "matches": matches,
+                        "message": f"Found {len(projects)} projects matching '{project_name}': {', '.join([p.name for p in projects])}. Which one did you mean?"
+                    }
                 else:
                     logger.warning(
                         "Task creation failed: project not found",
@@ -742,12 +775,16 @@ async def execute_api_action(
 
             return {
                 "success": True,
+                "entity_type": "task",
+                "action": "created",
                 "result": {
                     "id": task.id,
                     "name": task.name,
                     "status": task.status,
                     "priority": task.priority,
-                    "project_id": task.project_id
+                    "project_id": task.project_id,
+                    "assignee": task.assignee,
+                    "due_date": task.due_date.isoformat() if task.due_date else None
                 },
                 "message": f"✓ CONFIRMED: Task '{task.name}' created successfully with ID {task.id}"
             }
@@ -1159,11 +1196,15 @@ async def execute_api_action(
 
             return {
                 "success": True,
+                "entity_type": "contact",
+                "action": "updated",
                 "result": {
                     "id": contact.id,
                     "name": contact.name,
                     "email": contact.email,
-                    "phone": contact.phone
+                    "phone": contact.phone,
+                    "job_position": contact.job_position,
+                    "organization": contact.organization
                 },
                 "message": f"✓ CONFIRMED: Contact '{contact.name}' updated successfully"
             }
@@ -1272,10 +1313,14 @@ async def execute_api_action(
 
             return {
                 "success": True,
+                "entity_type": "organization",
+                "action": "updated",
                 "result": {
                     "id": organization.id,
                     "name": organization.name,
-                    "industry": organization.industry
+                    "industry": organization.industry,
+                    "website": organization.website,
+                    "email": organization.email
                 },
                 "message": f"Organization '{organization.name}' updated successfully"
             }
@@ -1397,11 +1442,14 @@ async def execute_api_action(
 
             return {
                 "success": True,
+                "entity_type": "project",
+                "action": "updated",
                 "result": {
                     "id": project.id,
                     "name": project.name,
                     "status": project.status,
-                    "priority": project.priority
+                    "priority": project.priority,
+                    "due_date": project.due_date.isoformat() if project.due_date else None
                 },
                 "message": f"Project '{project.name}' updated successfully"
             }
@@ -1525,11 +1573,15 @@ async def execute_api_action(
 
             return {
                 "success": True,
+                "entity_type": "task",
+                "action": "updated",
                 "result": {
                     "id": task.id,
                     "name": task.name,
                     "status": task.status,
-                    "priority": task.priority
+                    "priority": task.priority,
+                    "assignee": task.assignee,
+                    "due_date": task.due_date.isoformat() if task.due_date else None
                 },
                 "message": f"Task '{task.name}' updated successfully"
             }
@@ -1631,6 +1683,8 @@ async def execute_api_action(
 
                 return {
                     "success": True,
+                    "entity_type": "contact",
+                    "action": "deleted",
                     "result": {
                         "id": contact_id,
                         "name": contact_name
@@ -1722,6 +1776,8 @@ async def execute_api_action(
 
                 return {
                     "success": True,
+                    "entity_type": "organization",
+                    "action": "deleted",
                     "result": {"id": org_id, "name": org_name},
                     "message": f"✓ CONFIRMED: Organization '{org_name}' deleted successfully"
                 }
@@ -1804,6 +1860,8 @@ async def execute_api_action(
 
                 return {
                     "success": True,
+                    "entity_type": "project",
+                    "action": "deleted",
                     "result": {"id": proj_id, "name": proj_name},
                     "message": f"✓ CONFIRMED: Project '{proj_name}' deleted successfully"
                 }
@@ -1887,6 +1945,8 @@ async def execute_api_action(
 
                 return {
                     "success": True,
+                    "entity_type": "task",
+                    "action": "deleted",
                     "result": {"id": task_id, "name": task_name},
                     "message": f"✓ CONFIRMED: Task '{task_name}' deleted successfully"
                 }
@@ -1929,6 +1989,8 @@ async def execute_api_action(
                         await db.commit()
                         return {
                             "success": True,
+                            "entity_type": "contact",
+                            "action": "deleted",
                             "result": {"id": selected_id, "name": contact_name},
                             "message": f"✓ CONFIRMED: Contact '{contact_name}' deleted successfully"
                         }
@@ -1955,11 +2017,15 @@ async def execute_api_action(
 
                     return {
                         "success": True,
+                        "entity_type": "contact",
+                        "action": "updated",
                         "result": {
                             "id": contact.id,
                             "name": contact.name,
                             "email": contact.email,
-                            "phone": contact.phone
+                            "phone": contact.phone,
+                            "job_position": contact.job_position,
+                            "organization": contact.organization
                         },
                         "message": f"✓ CONFIRMED: Contact '{contact.name}' updated successfully"
                     }
@@ -1984,6 +2050,8 @@ async def execute_api_action(
                         await db.commit()
                         return {
                             "success": True,
+                            "entity_type": "organization",
+                            "action": "deleted",
                             "result": {"id": selected_id, "name": org_name},
                             "message": f"✓ CONFIRMED: Organization '{org_name}' deleted successfully"
                         }
@@ -2009,10 +2077,14 @@ async def execute_api_action(
 
                     return {
                         "success": True,
+                        "entity_type": "organization",
+                        "action": "updated",
                         "result": {
                             "id": organization.id,
                             "name": organization.name,
-                            "industry": organization.industry
+                            "industry": organization.industry,
+                            "website": organization.website,
+                            "email": organization.email
                         },
                         "message": f"✓ CONFIRMED: Organization '{organization.name}' updated successfully"
                     }
@@ -2037,6 +2109,8 @@ async def execute_api_action(
                         await db.commit()
                         return {
                             "success": True,
+                            "entity_type": "project",
+                            "action": "deleted",
                             "result": {"id": selected_id, "name": proj_name},
                             "message": f"✓ CONFIRMED: Project '{proj_name}' deleted successfully"
                         }
@@ -2077,11 +2151,14 @@ async def execute_api_action(
 
                 return {
                     "success": True,
+                    "entity_type": "project",
+                    "action": "updated",
                     "result": {
                         "id": project.id,
                         "name": project.name,
                         "status": project.status,
-                        "priority": project.priority
+                        "priority": project.priority,
+                        "due_date": project.due_date.isoformat() if project.due_date else None
                     },
                     "message": f"✓ CONFIRMED: Project '{project.name}' updated successfully"
                 }
@@ -2106,6 +2183,8 @@ async def execute_api_action(
                         await db.commit()
                         return {
                             "success": True,
+                            "entity_type": "task",
+                            "action": "deleted",
                             "result": {"id": selected_id, "name": task_name},
                             "message": f"✓ CONFIRMED: Task '{task_name}' deleted successfully"
                         }
@@ -2140,11 +2219,15 @@ async def execute_api_action(
 
                 return {
                     "success": True,
+                    "entity_type": "task",
+                    "action": "updated",
                     "result": {
                         "id": task.id,
                         "name": task.name,
                         "status": task.status,
-                        "priority": task.priority
+                        "priority": task.priority,
+                        "assignee": task.assignee,
+                        "due_date": task.due_date.isoformat() if task.due_date else None
                     },
                     "message": f"✓ CONFIRMED: Task '{task.name}' updated successfully"
                 }
@@ -2169,6 +2252,32 @@ async def execute_api_action(
             # Check if it's a Microsoft 365 MCP tool
             if tool_name.startswith(("outlook_", "sharepoint_", "onedrive_", "teams_", "authenticate", "extract_document")):
                 try:
+                    # Check if tool is registered - if not, try to re-register MCP tools
+                    if not tool_registry.get_tool(tool_name):
+                        logger.warning(
+                            "MCP tool not registered, attempting re-registration",
+                            tool_name=tool_name,
+                            user_id=user.id
+                        )
+                        # Try to re-register MCP tools
+                        try:
+                            from ...core.startup import initialize_microsoft365_mcp
+                            await initialize_microsoft365_mcp()
+                        except Exception as reg_error:
+                            logger.error(
+                                "MCP re-registration failed",
+                                error=str(reg_error),
+                                user_id=user.id
+                            )
+
+                        # Check again after re-registration
+                        if not tool_registry.get_tool(tool_name):
+                            return {
+                                "success": False,
+                                "error": "Microsoft 365 integration is not available. Please check that the MCP server is running and try reconnecting your Microsoft 365 account in Settings → Integrations.",
+                                "mcp_unavailable": True  # Flag for direct error response
+                            }
+
                     # Execute via tool registry (using our MCP adapter)
                     tool_result = await tool_registry.execute_tool(
                         tool_name=tool_name,
@@ -2268,7 +2377,8 @@ async def send_chat_message(
 ):
     """Send a message to the AI assistant and get response with intelligent context management"""
 
-    user_memory = get_conversation_memory(current_user.id)
+    # Use persistent memory (database-backed) for cross-session continuity
+    user_memory = await get_persistent_memory(current_user.id, db)
 
     try:
         # ============================================
@@ -2321,7 +2431,7 @@ async def send_chat_message(
                     error_msg = execution_result.get("error", "Unknown error") if execution_result else "No result"
                     user_message = f"User resolved clarification but the operation failed: {error_msg}"
 
-                # Generate AI response
+                # Generate AI response (high confidence since user explicitly resolved)
                 ai_response = await ai_service.generate_crm_response(
                     user_message=user_message,
                     conversation_history=chat_data.conversation_history,
@@ -2330,7 +2440,9 @@ async def send_chat_message(
                         "name": current_user.name,
                         "email": current_user.email
                     },
-                    provider=chat_data.provider
+                    provider=chat_data.provider,
+                    confidence=1.0,
+                    has_clarification=False
                 )
 
                 # Return response in ChatResponse format
@@ -2374,22 +2486,132 @@ async def send_chat_message(
                 "content": last_offer
             })
 
-        # Parse the command using LLM with conversation history for follow-up detection
-        parsed_command = await llm_command_parser.parse_command(
-            chat_data.message,
-            user_context={"user_id": current_user.id},
-            conversation_history=chat_data.conversation_history
-        )
+        # PRE-PARSE CHECK: Intercept affirmative responses after email offers
+        # This prevents LLM from misinterpreting "yes" as extract_document_content
+        parsed_command = None
+        message_lower = chat_data.message.lower().strip()
+        affirmatives = ["yes", "sure", "ok", "okay", "yeah", "yep", "please", "do it",
+                        "go ahead", "please do", "show me", "show it", "retrieve it"]
+
+        if message_lower in affirmatives and chat_data.conversation_history:
+            # Check last AI messages for email offer
+            for msg in reversed(chat_data.conversation_history[-5:]):
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", "").lower()
+                    email_offer_indicators = [
+                        "retrieve the full", "show you the", "full content",
+                        "email body", "full email", "would you like me to",
+                        "shall i retrieve", "want me to get", "summarize",
+                        "show the content", "get the full"
+                    ]
+                    if any(phrase in content for phrase in email_offer_indicators):
+                        # Force get_latest_email intent - prevents wrong tool selection
+                        parsed_command = {
+                            "intent": "get_latest_email",
+                            "entities": {},
+                            "confidence": 0.95,
+                            "raw_text": chat_data.message
+                        }
+                        logger.info(
+                            "Pre-parse intercept: Affirmative after email offer → get_latest_email",
+                            user_message=chat_data.message,
+                            user_id=current_user.id
+                        )
+                        break
+
+        # If not intercepted, parse normally using LLM
+        if parsed_command is None:
+            # Get recent entities from conversation memory for context-aware parsing
+            recent_entities = user_memory.get_recent_entities_for_parser(limit=10)
+
+            parsed_command = await llm_command_parser.parse_command(
+                chat_data.message,
+                user_context={"user_id": current_user.id},
+                conversation_history=chat_data.conversation_history,
+                recent_entities=recent_entities
+            )
         command_detected = parsed_command["confidence"] > 0.7
         api_action = None
         execution_result = None
 
         # If it's a recognized command, try to execute it
         if command_detected and parsed_command["intent"] != "unknown":
-            # Skip execution for follow-up questions - AI will answer from conversation history
+            # Handle follow-up questions intelligently
             if parsed_command["intent"] == "answer_from_context":
-                # Don't execute any tools - the data is already in conversation history
-                pass
+                # Check if user is asking for details - if so, re-query the database
+                detail_request_patterns = [
+                    "detail", "more info", "tell me more", "show me more",
+                    "their info", "his info", "her info", "its info",
+                    "full info", "all info", "complete info",
+                    "phone", "email", "job", "position", "organization", "company",
+                    "what is", "what are", "who is"
+                ]
+
+                message_lower = chat_data.message.lower()
+                is_detail_request = any(pattern in message_lower for pattern in detail_request_patterns)
+
+                if is_detail_request:
+                    # Check for tracked entities and re-query them
+                    tracked_contacts = user_memory.get_tracked_entities("contacts")
+                    tracked_emails = user_memory.get_tracked_entities("emails")
+
+                    # Re-query contacts from database for fresh details
+                    if tracked_contacts and ("contact" in message_lower or "their" in message_lower or "his" in message_lower or "her" in message_lower):
+                        contact_ids = [c.get("id") for c in tracked_contacts if c.get("id")]
+                        if contact_ids:
+                            contact_query = select(Contact).where(
+                                and_(
+                                    Contact.user_id == current_user.id,
+                                    Contact.id.in_(contact_ids)
+                                )
+                            )
+                            contact_result = await db.execute(contact_query)
+                            requeried_contacts = contact_result.scalars().all()
+
+                            if requeried_contacts:
+                                execution_result = {
+                                    "success": True,
+                                    "result": [
+                                        {
+                                            "id": c.id,
+                                            "name": c.name,
+                                            "email": c.email,
+                                            "phone": c.phone,
+                                            "job_position": c.job_position,
+                                            "organization": c.organization,
+                                            "notes": c.notes,
+                                            "created_at": c.created_at.isoformat() if c.created_at else None
+                                        }
+                                        for c in requeried_contacts
+                                    ],
+                                    "message": f"Re-queried {len(requeried_contacts)} contact(s) for detailed view"
+                                }
+                                logger.info(
+                                    "Re-queried contacts for detail request",
+                                    contact_count=len(requeried_contacts),
+                                    user_id=current_user.id
+                                )
+
+                    # Re-query emails if mentioned
+                    elif tracked_emails and ("email" in message_lower or "message" in message_lower):
+                        # For emails, we need to call the MCP tool
+                        current_email_id = user_memory.get_current_email_id()
+                        if current_email_id:
+                            api_action = {
+                                "method": "MCP_TOOL",
+                                "tool_name": "outlook_get_email",
+                                "parameters": {
+                                    "email_id": current_email_id,
+                                    "include_attachments": True
+                                },
+                                "description": "Re-retrieve email for details"
+                            }
+                            execution_result = await execute_api_action(api_action, current_user, db)
+                            logger.info(
+                                "Re-queried email for detail request",
+                                email_id=current_email_id,
+                                user_id=current_user.id
+                            )
             else:
                 api_action = llm_command_parser.generate_api_action(parsed_command)
 
@@ -2420,7 +2642,7 @@ async def send_chat_message(
                         )
 
                 # Execute the action if it's supported
-                if api_action["method"] != "UNKNOWN":
+                if api_action and api_action.get("method") and api_action["method"] != "UNKNOWN":
                     # Log MCP tool calls for email searches
                     if parsed_command.get("intent") == "search_emails" and api_action.get("method") == "MCP_TOOL":
                         logger.info(
@@ -2448,13 +2670,44 @@ async def send_chat_message(
                         else:
                             logger.info("🔍 EMAIL SEARCH RESULTS: No emails found")
 
-        # Build user context for AI
+        # Build user context for AI with explicit integration status
+        # Check MS365 integration status directly (more reliable than relying on relationship loading)
+        ms365_connected = False
+        ms365_sync_emails = False
+        ms365_sync_calendars = False
+        ms365_sync_files = False
+
+        if hasattr(current_user, 'integrations') and current_user.integrations:
+            for integration in current_user.integrations:
+                if integration.service_type == "microsoft365" and integration.is_connected:
+                    ms365_connected = True
+                    ms365_sync_emails = integration.sync_emails
+                    ms365_sync_calendars = integration.sync_calendars
+                    ms365_sync_files = integration.sync_files
+                    logger.info(
+                        "MS365 integration detected",
+                        user_id=current_user.id,
+                        sync_emails=ms365_sync_emails,
+                        sync_calendars=ms365_sync_calendars,
+                        sync_files=ms365_sync_files
+                    )
+                    break
+
         user_context = {
             "user": current_user,  # Include full user object for integration checking
             "name": current_user.name,
             "email": current_user.email,
             "company": current_user.company,
-            "preferred_ai_model": current_user.preferred_ai_model
+            "preferred_ai_model": current_user.preferred_ai_model,
+            # Explicit integration status - ensures AI knows what's connected
+            "integrations": {
+                "microsoft365": {
+                    "connected": ms365_connected,
+                    "sync_emails": ms365_sync_emails,
+                    "sync_calendars": ms365_sync_calendars,
+                    "sync_files": ms365_sync_files
+                }
+            }
         }
 
         # Prepare message for AI with execution context
@@ -2471,10 +2724,11 @@ Answer the question using the information from the conversation history.
 Be natural and reference the data confidently since you already have access to it.
 """
 
-        # Defensive check: ensure execution_result is not None
-        if execution_result is None:
+        # Defensive check: ensure execution_result is not None when an action was expected
+        # Only log error if api_action was valid and should have been executed
+        if execution_result is None and api_action and api_action.get("method") and api_action["method"] != "UNKNOWN":
             logger.error(
-                "CRITICAL: execute_api_action returned None",
+                "CRITICAL: execute_api_action returned None for valid action",
                 api_action=api_action,
                 user_id=current_user.id
             )
@@ -2546,13 +2800,38 @@ Be natural and reference the data confidently since you already have access to i
                                     else:
                                         data_summary += f"    [No body preview available]\n"
                                 elif 'name' in item and 'email' in item:  # Contact
-                                    data_summary += f"{i}. {item.get('name', 'Unknown')} ({item.get('email', 'no email')})\n"
+                                    # Include FULL contact details to prevent AI hallucination on follow-ups
+                                    data_summary += f"{i}. {item.get('name', 'Unknown')}\n"
+                                    data_summary += f"   - Email: {item.get('email', 'N/A')}\n"
+                                    if item.get('phone'):
+                                        data_summary += f"   - Phone: {item.get('phone')}\n"
+                                    if item.get('job_position'):
+                                        data_summary += f"   - Position: {item.get('job_position')}\n"
+                                    if item.get('organization'):
+                                        data_summary += f"   - Organization: {item.get('organization')}\n"
                                 elif 'name' in item and 'status' in item and 'priority' in item:  # Project (has priority)
-                                    data_summary += f"{i}. {item.get('name', 'Unknown')} (Status: {item.get('status', 'unknown')})\n"
+                                    data_summary += f"{i}. {item.get('name', 'Unknown')}\n"
+                                    data_summary += f"   - Status: {item.get('status', 'unknown')}\n"
+                                    if item.get('priority'):
+                                        data_summary += f"   - Priority: {item.get('priority')}\n"
+                                    if item.get('due_date'):
+                                        data_summary += f"   - Due: {item.get('due_date')}\n"
                                 elif 'name' in item and 'status' in item:  # Task (has status but not priority at this level)
-                                    data_summary += f"{i}. {item.get('name', 'Unknown')} (Status: {item.get('status', 'unknown')})\n"
+                                    data_summary += f"{i}. {item.get('name', 'Unknown')}\n"
+                                    data_summary += f"   - Status: {item.get('status', 'unknown')}\n"
+                                    if item.get('priority'):
+                                        data_summary += f"   - Priority: {item.get('priority')}\n"
+                                    if item.get('assignee'):
+                                        data_summary += f"   - Assignee: {item.get('assignee')}\n"
+                                    if item.get('due_date'):
+                                        data_summary += f"   - Due: {item.get('due_date')}\n"
                                 elif 'name' in item and 'industry' in item:  # Organization
-                                    data_summary += f"{i}. {item.get('name', 'Unknown')} (Industry: {item.get('industry', 'unknown')})\n"
+                                    data_summary += f"{i}. {item.get('name', 'Unknown')}\n"
+                                    data_summary += f"   - Industry: {item.get('industry', 'N/A')}\n"
+                                    if item.get('website'):
+                                        data_summary += f"   - Website: {item.get('website')}\n"
+                                    if item.get('description'):
+                                        data_summary += f"   - Description: {item.get('description')[:100]}...\n" if len(item.get('description', '')) > 100 else f"   - Description: {item.get('description')}\n"
                                 else:
                                     data_summary += f"{i}. {item}\n"
 
@@ -2591,38 +2870,50 @@ Be natural and reference the data confidently since you already have access to i
                                 })
                                 logger.info(f"Tracked email: {email_to_track.get('id')} (subject: {email_to_track.get('subject')[:50] if email_to_track.get('subject') else 'None'})")
 
-                            # Track contacts
+                            # Track ALL contacts with positions (enables "the second one")
                             elif 'email' in result_data[0] and 'name' in result_data[0]:
-                                user_memory.track_entity_mention("contacts", {
-                                    "id": result_data[0].get('id'),
-                                    "name": result_data[0].get('name'),
-                                    "email": result_data[0].get('email')
-                                })
-                                logger.info(f"Tracked first contact in list: {result_data[0].get('name')}")
+                                # Track ALL items with their positions for "the second one" references
+                                for idx, item in enumerate(result_data[:20]):  # Limit to first 20
+                                    user_memory.track_entity_mention("contacts", {
+                                        "id": item.get('id'),
+                                        "name": item.get('name'),
+                                        "email": item.get('email'),
+                                        "position": idx  # 0-indexed position
+                                    })
+                                logger.info(f"Tracked {min(len(result_data), 20)} contacts with positions")
 
-                            # Track projects
+                            # Track ALL projects with positions
                             elif 'status' in result_data[0] and 'priority' in result_data[0]:
-                                user_memory.track_entity_mention("projects", {
-                                    "id": result_data[0].get('id'),
-                                    "name": result_data[0].get('name')
-                                })
-                                logger.info(f"Tracked first project in list: {result_data[0].get('name')}")
+                                for idx, item in enumerate(result_data[:20]):
+                                    user_memory.track_entity_mention("projects", {
+                                        "id": item.get('id'),
+                                        "name": item.get('name'),
+                                        "status": item.get('status'),
+                                        "position": idx
+                                    })
+                                logger.info(f"Tracked {min(len(result_data), 20)} projects with positions")
 
-                            # Track organizations
+                            # Track ALL organizations with positions
                             elif 'industry' in result_data[0]:
-                                user_memory.track_entity_mention("organizations", {
-                                    "id": result_data[0].get('id'),
-                                    "name": result_data[0].get('name')
-                                })
-                                logger.info(f"Tracked first organization in list: {result_data[0].get('name')}")
+                                for idx, item in enumerate(result_data[:20]):
+                                    user_memory.track_entity_mention("organizations", {
+                                        "id": item.get('id'),
+                                        "name": item.get('name'),
+                                        "industry": item.get('industry'),
+                                        "position": idx
+                                    })
+                                logger.info(f"Tracked {min(len(result_data), 20)} organizations with positions")
 
-                            # Track tasks
+                            # Track ALL tasks with positions
                             elif 'status' in result_data[0] and 'project_id' in result_data[0]:
-                                user_memory.track_entity_mention("tasks", {
-                                    "id": result_data[0].get('id'),
-                                    "name": result_data[0].get('name')
-                                })
-                                logger.info(f"Tracked first task in list: {result_data[0].get('name')}")
+                                for idx, item in enumerate(result_data[:20]):
+                                    user_memory.track_entity_mention("tasks", {
+                                        "id": item.get('id'),
+                                        "name": item.get('name'),
+                                        "status": item.get('status'),
+                                        "position": idx
+                                    })
+                                logger.info(f"Tracked {min(len(result_data), 20)} tasks with positions")
 
                             user_message += f"""\n\nCRITICAL CONTEXT FOR EMAIL LISTS:
 - You are seeing {len(result_data)} email(s) with PREVIEW TEXT ONLY (~200 characters)
@@ -2714,9 +3005,57 @@ Answer based ONLY on data between the ==== markers above. Nothing else exists.
                 # Handle clarification scenarios (like multiple matches)
                 ai_context = execution_result.get("ai_context", "")
                 user_message = f"User said: '{chat_data.message}'\n\n{ai_context}"
+            elif execution_result.get("mcp_unavailable"):
+                # CRITICAL: MCP service unavailable - return DIRECT response (bypass AI)
+                # This prevents AI hallucination when Microsoft 365 tools aren't available
+                logger.warning(
+                    "MCP unavailable - returning direct error response",
+                    user_id=current_user.id,
+                    intent=parsed_command.get("intent")
+                )
+                error_msg = execution_result.get('error', 'Microsoft 365 integration is not available.')
+
+                # Commit memory changes before returning
+                await user_memory.commit()
+
+                return ChatResponse(
+                    response=f"I'm sorry, but I can't access your Microsoft 365 data right now. {error_msg}",
+                    confidence=1.0,
+                    intent=parsed_command.get("intent", "unknown"),
+                    entities=parsed_command.get("entities", {}),
+                    action_required=False,
+                    provider="system"
+                )
             else:
                 # CRITICAL: Tool execution failed - strict error reporting
                 error_message = execution_result.get('error', 'Unknown error')
+
+                # Check if this is an authentication/connection error that should bypass AI
+                auth_error_patterns = [
+                    "not connected", "authentication", "session expired",
+                    "reconnect", "not available", "tool not found"
+                ]
+                is_auth_error = any(p in error_message.lower() for p in auth_error_patterns)
+
+                if is_auth_error:
+                    # Return direct response for auth errors (bypass AI to prevent hallucination)
+                    logger.warning(
+                        "Auth/connection error - returning direct error response",
+                        user_id=current_user.id,
+                        error=error_message
+                    )
+
+                    await user_memory.commit()
+
+                    return ChatResponse(
+                        response=f"I encountered an issue: {error_message}",
+                        confidence=1.0,
+                        intent=parsed_command.get("intent", "unknown"),
+                        entities=parsed_command.get("entities", {}),
+                        action_required=False,
+                        provider="system"
+                    )
+
                 user_message = f"""User asked: "{chat_data.message}"
 
 CRITICAL ERROR - TOOL EXECUTION FAILED:
@@ -2764,12 +3103,18 @@ ABSOLUTELY FORBIDDEN:
                 snippet = user_message[start_idx:start_idx+300]
                 logger.info(f"📧 AI will see: {snippet}...")
 
+        # Determine if clarification is pending
+        has_pending_clarification = execution_result and execution_result.get("requires_clarification", False)
+
         # Get AI response with enhanced context management
+        # Extended thinking is enabled for: low confidence, clarifications, long conversations
         ai_response = await ai_service.generate_crm_response(
             user_message=user_message,
             user_context=user_context,
             conversation_history=chat_data.conversation_history,
-            provider=chat_data.provider
+            provider=chat_data.provider,
+            confidence=parsed_command.get("confidence", 1.0),
+            has_clarification=has_pending_clarification
         )
 
         # Log AI response for email searches

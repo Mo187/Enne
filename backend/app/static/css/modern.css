@@ -188,6 +188,25 @@ body {
   border-radius: 0 20px 0 0;
 }
 
+/* Message content wrapper - allows entity cards to expand beyond bubble width */
+.message-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 85%;
+  min-width: 0;
+}
+
+.message-content-wrapper .chat-bubble-modern {
+  max-width: 100%;
+}
+
+.message-content-wrapper .entity-card-container {
+  width: 100%;
+  min-width: 320px;
+  max-width: 450px;
+}
+
 [data-theme="dark"] .chat-bubble-modern {
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.3),
@@ -3358,3 +3377,241 @@ body {
   border-color: rgba(255, 255, 255, 0.15);
   background: rgba(20, 20, 20, 0.8);
 }
+
+/* =====================================================
+   ENTITY CARDS IN CHAT - CRUD Operation Results
+   ===================================================== */
+
+/* Card container */
+.entity-card-container {
+  animation: cardPopIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes cardPopIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translateY(10px);
+  }
+  50% {
+    transform: scale(1.02) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Entity card base */
+.entity-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.04);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.entity-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.entity-card:hover::before {
+  opacity: 1;
+}
+
+/* Clickable card styles */
+.entity-card-clickable {
+  cursor: pointer;
+}
+
+.entity-card-clickable:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.12),
+    0 4px 8px rgba(0, 0, 0, 0.06);
+  border-color: var(--primary);
+}
+
+/* Card header */
+.entity-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.entity-card-icon {
+  font-size: 24px;
+  line-height: 1;
+}
+
+.entity-card-title-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.entity-card-type {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.entity-card-action {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Action badge colors */
+.bg-green-100 { background-color: rgba(34, 197, 94, 0.15); }
+.text-green-800 { color: #166534; }
+.bg-blue-100 { background-color: rgba(59, 130, 246, 0.15); }
+.text-blue-800 { color: #1e40af; }
+.bg-red-100 { background-color: rgba(239, 68, 68, 0.15); }
+.text-red-800 { color: #991b1b; }
+
+[data-theme="dark"] .text-green-800 { color: #86efac; }
+[data-theme="dark"] .text-blue-800 { color: #93c5fd; }
+[data-theme="dark"] .text-red-800 { color: #fca5a5; }
+
+/* Card name */
+.entity-card-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+
+/* Card details */
+.entity-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.entity-card-detail {
+  font-size: 13px;
+  color: var(--foreground-secondary);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.detail-label {
+  font-weight: 500;
+  color: var(--foreground-secondary);
+  min-width: 80px;
+}
+
+.detail-value {
+  color: var(--foreground);
+}
+
+/* Badges container */
+.entity-card-badges {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+/* Status badges */
+.status-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  text-transform: capitalize;
+}
+
+.status-pending { background: rgba(251, 191, 36, 0.15); color: #92400e; }
+.status-in-progress, .status-in_progress { background: rgba(59, 130, 246, 0.15); color: #1e40af; }
+.status-completed { background: rgba(34, 197, 94, 0.15); color: #166534; }
+.status-planned { background: rgba(168, 85, 247, 0.15); color: #6b21a8; }
+.status-cancelled { background: rgba(107, 114, 128, 0.15); color: #374151; }
+
+[data-theme="dark"] .status-pending { color: #fcd34d; }
+[data-theme="dark"] .status-in-progress, [data-theme="dark"] .status-in_progress { color: #93c5fd; }
+[data-theme="dark"] .status-completed { color: #86efac; }
+[data-theme="dark"] .status-planned { color: #d8b4fe; }
+[data-theme="dark"] .status-cancelled { color: #9ca3af; }
+
+/* Priority badges */
+.priority-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  text-transform: capitalize;
+}
+
+.priority-low { background: rgba(34, 197, 94, 0.15); color: #166534; }
+.priority-medium { background: rgba(251, 191, 36, 0.15); color: #92400e; }
+.priority-high { background: rgba(249, 115, 22, 0.15); color: #9a3412; }
+.priority-urgent, .priority-critical { background: rgba(239, 68, 68, 0.15); color: #991b1b; }
+
+[data-theme="dark"] .priority-low { color: #86efac; }
+[data-theme="dark"] .priority-medium { color: #fcd34d; }
+[data-theme="dark"] .priority-high { color: #fdba74; }
+[data-theme="dark"] .priority-urgent, [data-theme="dark"] .priority-critical { color: #fca5a5; }
+
+/* Card footer */
+.entity-card-footer {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.view-link {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.entity-card-clickable:hover .view-link {
+  color: var(--accent);
+  transform: translateX(3px);
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .entity-card {
+  background: var(--card);
+  border-color: var(--border);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.2),
+    0 2px 4px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="dark"] .entity-card-clickable:hover {
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.3),
+    0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="dark"] .bg-green-100 { background-color: rgba(34, 197, 94, 0.2); }
+[data-theme="dark"] .bg-blue-100 { background-color: rgba(59, 130, 246, 0.2); }
+[data-theme="dark"] .bg-red-100 { background-color: rgba(239, 68, 68, 0.2); }

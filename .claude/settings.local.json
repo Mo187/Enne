@@ -6,7 +6,15 @@
       "WebFetch(domain:gofastmcp.com)",
       "WebFetch(domain:medium.com)",
       "Bash(docker inspect:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(docker-compose restart:*)",
+      "Bash(docker logs:*)",
+      "Bash(dir c:Usersmohamed.agoumarDesktopcrmmcp-microsoft365-server /s /b)",
+      "Bash(dir:*)",
+      "Bash(python -m alembic:*)",
+      "Bash(python -c:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

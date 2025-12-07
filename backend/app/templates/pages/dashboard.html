@@ -33,47 +33,31 @@ document.addEventListener('DOMContentLoaded', function() {
 // Load dashboard statistics
 async function loadDashboardStats() {
     const token = localStorage.getItem('access_token');
+    const headers = {'Authorization': 'Bearer ' + token};
 
-    try {
-        // Load contacts count
-        const contactsRes = await fetch('/api/v1/contacts?limit=1', {
-            headers: {'Authorization': 'Bearer ' + token}
-        });
-        if (contactsRes.ok) {
-            const contactsData = await contactsRes.json();
-            document.getElementById('contacts-count').textContent = contactsData.total || 0;
+    // Helper function to load a stat
+    async function loadStat(endpoint, elementId) {
+        try {
+            const res = await fetch(endpoint, { headers });
+            if (res.ok) {
+                const data = await res.json();
+                document.getElementById(elementId).textContent = data.total || 0;
+            } else {
+                document.getElementById(elementId).textContent = '0';
+            }
+        } catch (error) {
+            console.error(`Error loading ${elementId}:`, error);
+            document.getElementById(elementId).textContent = '0';
         }
-
-        // Load organizations count
-        const orgsRes = await fetch('/api/v1/organizations?limit=1', {
-            headers: {'Authorization': 'Bearer ' + token}
-        });
-        if (orgsRes.ok) {
-            const orgsData = await orgsRes.json();
-            document.getElementById('organizations-count').textContent = orgsData.total || 0;
-        }
-
-        // Load projects count
-        const projectsRes = await fetch('/api/v1/projects?limit=1', {
-            headers: {'Authorization': 'Bearer ' + token}
-        });
-        if (projectsRes.ok) {
-            const projectsData = await projectsRes.json();
-            const activeProjects = projectsData.total || 0;
-            document.getElementById('projects-count').textContent = activeProjects;
-        }
-
-        // Load tasks count
-        const tasksRes = await fetch('/api/v1/tasks?limit=1', {
-            headers: {'Authorization': 'Bearer ' + token}
-        });
-        if (tasksRes.ok) {
-            const tasksData = await tasksRes.json();
-            document.getElementById('tasks-count').textContent = tasksData.total || 0;
-        }
-    } catch (error) {
-        console.error('Error loading dashboard stats:', error);
     }
+
+    // Load all stats in parallel
+    await Promise.all([
+        loadStat('/api/v1/contacts?per_page=1', 'contacts-count'),
+        loadStat('/api/v1/organizations?per_page=1', 'organizations-count'),
+        loadStat('/api/v1/projects?per_page=1', 'projects-count'),
+        loadStat('/api/v1/tasks?per_page=1', 'tasks-count')
+    ]);
 }
 </script>
 {% endblock %}

@@ -311,6 +311,20 @@
 
     <!-- Global JavaScript -->
     <script>
+        // Global fetch interceptor for 401 handling
+        (function() {
+            const originalFetch = window.fetch;
+            window.fetch = async function(...args) {
+                const response = await originalFetch.apply(this, args);
+                if (response.status === 401) {
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('user_data');
+                    window.location.href = '/login';
+                }
+                return response;
+            };
+        })();
+
         // Enhanced user menu functionality
         function initUserMenu() {
             const userMenuTrigger = document.getElementById('user-menu-trigger');
@@ -504,8 +518,8 @@
             }
         });
 
-        // Periodically check token validity (every 5 minutes)
-        setInterval(checkAuthStatus, 5 * 60 * 1000);
+        // Periodically check token validity (every 1 minute)
+        setInterval(checkAuthStatus, 1 * 60 * 1000);
     </script>
 
     {% block extra_js %}{% endblock %}

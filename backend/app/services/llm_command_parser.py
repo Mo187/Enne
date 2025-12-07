@@ -612,7 +612,7 @@ CONTEXT-AWARE RULES:
                     "importance": entities.get("priority", "normal")
                 },
                 "description": f"Send email to {entities.get('email_to', 'recipient')}",
-                "raw_text": parsed_command.get("raw_text", "")  # For AI content generation detection
+                "raw_text": parsed_result.get("raw_text", "")  # For AI content generation detection
             }
 
         elif intent == "search_emails":

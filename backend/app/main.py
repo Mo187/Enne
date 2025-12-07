@@ -118,10 +118,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Security middleware
+# Security middleware - allow Railway and production hosts
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1", "*.localhost"]
+    allowed_hosts=["localhost", "127.0.0.1", "*.localhost", "*.railway.app", "*.up.railway.app", "*"]  # * allows all in production
 )
 
 # CORS middleware

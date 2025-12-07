@@ -180,8 +180,15 @@ POST   /api/integrations/connect - Connect external service
 - **SDK**: Requires anthropic>=0.49.0
 
 ### Recent Fixes (Dec 2024)
+### Recent Fixes (Dec 2024)
 | Fix | Description | File |
 |-----|-------------|------|
+| Follow-up entity updates | Structured offer tracking for "add more info" after entity creation | `chat.py`, `conversation_memory.py` |
+| Pre-parse entity intercept | Intercepts affirmative + data responses to pending offers | `chat.py` |
+| Field extraction helper | Extracts email/phone from user messages | `chat.py` |
+| Pre-resolved ID updates | Contact updates use entity ID from offer tracking | `chat.py` |
+| Context-aware parsing | LLM parser receives recent entities for smarter intent detection | `llm_command_parser.py` |
+| Entity cards UI | Moved cards outside chat bubble for proper sizing | `assistant.html`, `modern.css` |
 | Follow-up entity updates | Structured offer tracking for "add more info" after entity creation | `chat.py`, `conversation_memory.py` |
 | Pre-parse entity intercept | Intercepts affirmative + data responses to pending offers | `chat.py` |
 | Field extraction helper | Extracts email/phone from user messages | `chat.py` |
@@ -195,6 +202,7 @@ POST   /api/integrations/connect - Connect external service
 | `backend/app/api/v1/chat.py` | Main chat endpoint, action execution, entity tracking |
 | `backend/app/services/ai_service.py` | AI providers, system prompt, extended thinking |
 | `backend/app/services/llm_command_parser.py` | Intent/entity extraction from natural language |
+| `backend/app/services/conversation_memory.py` | Persistent memory, entity tracking, pending offer tracking |
 | `backend/app/services/conversation_memory.py` | Persistent memory, entity tracking, pending offer tracking |
 | `backend/app/integrations/mcp_tool_adapter.py` | MCP tool schemas and validation |
 | `365mcp/` | Microsoft 365 MCP server (separate process) |
@@ -290,3 +298,23 @@ FRONTEND_URL=https://your-crm.up.railway.app
 Redirect URIs to register:
 - `http://localhost:8000/api/v1/integrations/ms365/callback` (local)
 - `https://your-app.up.railway.app/api/v1/integrations/ms365/callback` (production)
+| `365mcp/` | Microsoft 365 MCP server (separate process) |
+
+### MCP Server (365mcp/)
+- **Location**: `/365mcp/` - separate Python process
+- **Run**: `python 365mcp/run_server.py`
+- **Tools**: `outlook_send_email`, `outlook_search_emails`, `outlook_get_email`, `outlook_get_calendar_events`, etc.
+- **Files**:
+  - `365mcp/src/tools/outlook.py` - Outlook/email operations via Microsoft Graph API
+  - `365mcp/src/tools/sharepoint.py` - SharePoint operations
+  - `365mcp/src/auth/oauth_handler.py` - MS365 OAuth token management
+  - `365mcp/src/config/settings.py` - MCP server configuration
+
+### Email Configuration
+**IMPORTANT**: Sending emails via MS365 uses **Microsoft Graph API**, NOT SMTP.
+- The SMTP settings in `.env` (SMTP_SERVER, SMTP_PORT, etc.) are for **local notifications only**
+- For MS365 email sending:
+  1. Configure MS365 OAuth in `.env`: `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID`
+  2. Run MCP server: `python 365mcp/run_server.py`
+  3. User must connect MS365 account in Settings → Integrations
+  4. OAuth scopes required: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`

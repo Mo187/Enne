@@ -206,6 +206,15 @@ Output: {{"intent": "get_latest_email", "entities": {{}}, "confidence": 0.95}}
 Input: "Gabriel Jones" (after "Which Gabriel did you mean?")
 Output: {{"intent": "clarification_response", "entities": {{"selected_name": "Gabriel Jones"}}, "confidence": 0.95}}
 
+Input: "yes, add email john@test.com and phone 555-1234" (after creating contact, AI offered to add more info)
+Output: {{"intent": "update_contact", "entities": {{"contact_name": "him", "email": "john@test.com", "phone": "555-1234"}}, "confidence": 0.9}}
+
+Input: "sure, his email is test@example.com" (follow-up to add info offer)
+Output: {{"intent": "update_contact", "entities": {{"contact_name": "him", "email": "test@example.com"}}, "confidence": 0.9}}
+
+Input: "add their phone 555-9876" (after discussing a contact)
+Output: {{"intent": "update_contact", "entities": {{"contact_name": "them", "phone": "555-9876"}}, "confidence": 0.9}}
+
 CRITICAL RULES:
 1. Email confirmation (yes/sure/ok after email offer) → get_latest_email, NEVER extract_document_content
 2. extract_document_content is ONLY for SharePoint/OneDrive files, NOT emails
@@ -583,15 +592,23 @@ CONTEXT-AWARE RULES:
 
         # Microsoft 365 MCP Tool Integrations
         elif intent == "send_email":
+            # Convert single email to list if needed (MCP server expects arrays)
+            to_list = entities.get("email_to")
+            if to_list and isinstance(to_list, str):
+                to_list = [to_list]
+
+            cc_list = entities.get("email_cc")
+            if cc_list and isinstance(cc_list, str):
+                cc_list = [cc_list]
+
             return {
                 "method": "MCP_TOOL",
                 "tool_name": "outlook_send_email",
                 "parameters": {
-                    "to": entities.get("email_to"),
+                    "to_recipients": to_list,  # MCP server expects array
                     "subject": entities.get("email_subject"),
                     "body": entities.get("email_body"),
-                    "cc": entities.get("email_cc"),
-                    "bcc": entities.get("email_bcc"),
+                    "cc_recipients": cc_list,  # MCP server expects array
                     "importance": entities.get("priority", "normal")
                 },
                 "description": f"Send email to {entities.get('email_to', 'recipient')}"

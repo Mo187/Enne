@@ -1020,6 +1020,70 @@ class PersistentConversationMemory:
 
         return offer
 
+    def set_pending_entity_offer(
+        self,
+        offer_type: str,
+        entity_type: str,
+        entity_id: int,
+        entity_name: str,
+        offered_fields: List[str] = None
+    ):
+        """
+        Track a pending offer to update an entity with structured context.
+
+        This enables follow-up handling when AI offers to add more info after creation.
+        E.g., after creating contact "John", AI offers to add email/phone.
+
+        Args:
+            offer_type: Type of offer ("add_info", "update_fields")
+            entity_type: Entity type ("contact", "organization", "project", "task")
+            entity_id: Database ID of the entity
+            entity_name: Name of the entity for display/matching
+            offered_fields: List of fields offered (["email", "phone"])
+        """
+        self.recent_data["pending_offer"] = {
+            "offer_type": offer_type,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "entity_name": entity_name,
+            "offered_fields": offered_fields or ["email", "phone", "job_position", "organization"],
+            "timestamp": datetime.now(timezone.utc)
+        }
+        logger.debug(
+            f"Set pending entity offer: {offer_type} for {entity_type} '{entity_name}' (id={entity_id})"
+        )
+
+    def get_pending_offer(self, max_age_seconds: int = 300) -> Optional[Dict[str, Any]]:
+        """
+        Get pending entity update offer if recent enough.
+
+        Args:
+            max_age_seconds: Maximum age of offer to consider valid (default 5 minutes)
+
+        Returns:
+            Pending offer dict or None if expired/not exists
+        """
+        offer = self.recent_data.get("pending_offer")
+        if not offer:
+            return None
+
+        timestamp = offer.get("timestamp")
+        if not timestamp:
+            self.clear_pending_offer()
+            return None
+
+        age = datetime.now(timezone.utc) - timestamp
+        if age.total_seconds() > max_age_seconds:
+            logger.debug(f"Pending offer expired after {age.total_seconds():.0f}s")
+            self.clear_pending_offer()
+            return None
+
+        return offer
+
+    def clear_pending_offer(self):
+        """Clear any pending entity update offer"""
+        self.recent_data["pending_offer"] = None
+
     def store_data_payload(self, data_type: str, data_list: List[Dict[str, Any]]):
         """Backward compatible - store data payload and track entities"""
         for idx, item in enumerate(data_list):

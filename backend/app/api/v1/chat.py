@@ -127,6 +127,49 @@ def detect_query_intent(original_message: str, parsed_intent: str) -> str:
     return "search"
 
 
+def extract_fields_from_message(message: str) -> Dict[str, str]:
+    """
+    Extract email, phone, and other contact fields from user message.
+
+    Used when user provides field values in response to "add more info" offers.
+    E.g., "yes, add email john@test.com and phone 555-1234"
+
+    Args:
+        message: User message text
+
+    Returns:
+        Dict with extracted fields (email, phone, etc.)
+    """
+    import re
+    fields = {}
+
+    # Email pattern - captures common email formats
+    email_match = re.search(r'[\w\.\-\+]+@[\w\.\-]+\.[a-zA-Z]{2,}', message)
+    if email_match:
+        fields["email"] = email_match.group()
+
+    # Phone pattern - captures various phone formats
+    # Matches: 555-1234, (555) 123-4567, +1 555 123 4567, 5551234567, etc.
+    phone_match = re.search(r'(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{7,}', message)
+    if phone_match:
+        phone = phone_match.group().strip()
+        # Clean up phone number - remove extra spaces
+        phone = re.sub(r'\s+', ' ', phone)
+        fields["phone"] = phone
+
+    # Job position - look for patterns like "position: X" or "job: X" or "title: X"
+    job_match = re.search(r'(?:position|job|title|role)[:\s]+([^,\n]+)', message, re.IGNORECASE)
+    if job_match:
+        fields["job_position"] = job_match.group(1).strip()
+
+    # Organization - look for patterns like "company: X" or "organization: X" or "org: X"
+    org_match = re.search(r'(?:company|organization|org|works? (?:at|for))[:\s]+([^,\n]+)', message, re.IGNORECASE)
+    if org_match:
+        fields["organization"] = org_match.group(1).strip()
+
+    return fields
+
+
 async def safe_db_commit_with_verification(
     db: AsyncSession,
     entity,
@@ -1015,96 +1058,114 @@ async def execute_api_action(
             # Update contact with smart search
             user_memory = get_conversation_memory(user.id)
 
-            identifier = action.get("identifier")
+            # Check for pre-resolved ID from pending offer intercept
+            resolved_id = action.get("_resolved_id")
+            contact = None
 
-            # Check if identifier is a pronoun - use tracked contact
-            if not identifier or (isinstance(identifier, str) and identifier.lower() in ["it", "that", "that one", "him", "her", "them"]):
-                tracked_contact = user_memory.get_current_contact()
-                if tracked_contact and tracked_contact.get("name"):
-                    identifier = tracked_contact["name"]
-                    logger.info(f"Resolved pronoun to tracked contact for UPDATE: {identifier}")
-                elif not identifier:
-                    return {"success": False, "error": "Contact identifier required"}
-
-            # Try exact match first
-            exact_query = select(Contact).where(
-                and_(
-                    Contact.user_id == user.id,
-                    or_(
-                        Contact.name.ilike(identifier),
-                        Contact.email.ilike(identifier)
-                    )
+            if resolved_id:
+                # Direct lookup by pre-resolved ID (from pending offer handling)
+                id_query = select(Contact).where(
+                    and_(Contact.user_id == user.id, Contact.id == resolved_id)
                 )
-            ).limit(10)
+                id_result = await db.execute(id_query)
+                contact = id_result.scalar_one_or_none()
 
-            exact_result = await db.execute(exact_query)
-            contacts = exact_result.scalars().all()
+                if not contact:
+                    return {"success": False, "error": f"Contact with ID {resolved_id} not found"}
 
-            # If no exact match, try partial matching
-            if not contacts:
-                search_term = f"%{identifier}%"
-                partial_query = select(Contact).where(
+                logger.info(f"Using pre-resolved contact ID from pending offer: {resolved_id}")
+            else:
+                # Standard identifier resolution
+                identifier = action.get("identifier")
+
+                # Check if identifier is a pronoun - use tracked contact
+                if not identifier or (isinstance(identifier, str) and identifier.lower() in ["it", "that", "that one", "him", "her", "them"]):
+                    tracked_contact = user_memory.get_current_contact()
+                    if tracked_contact and tracked_contact.get("name"):
+                        identifier = tracked_contact["name"]
+                        logger.info(f"Resolved pronoun to tracked contact for UPDATE: {identifier}")
+                    elif not identifier:
+                        return {"success": False, "error": "Contact identifier required"}
+
+                # Try exact match first
+                exact_query = select(Contact).where(
                     and_(
                         Contact.user_id == user.id,
                         or_(
-                            Contact.name.ilike(search_term),
-                            Contact.email.ilike(search_term)
+                            Contact.name.ilike(identifier),
+                            Contact.email.ilike(identifier)
                         )
                     )
                 ).limit(10)
 
-                partial_result = await db.execute(partial_query)
-                contacts = partial_result.scalars().all()
+                exact_result = await db.execute(exact_query)
+                contacts = exact_result.scalars().all()
 
-            if not contacts:
-                return {"success": False, "error": f"No contacts found matching '{identifier}'"}
+                # If no exact match, try partial matching
+                if not contacts:
+                    search_term = f"%{identifier}%"
+                    partial_query = select(Contact).where(
+                        and_(
+                            Contact.user_id == user.id,
+                            or_(
+                                Contact.name.ilike(search_term),
+                                Contact.email.ilike(search_term)
+                            )
+                        )
+                    ).limit(10)
 
-            if len(contacts) > 1:
-                # Multiple matches found - create clarification with manager
-                matches_list = [
-                    {
-                        "id": contact.id,
-                        "name": contact.name,
-                        "email": contact.email,
-                        "phone": contact.phone,
-                        "organization": contact.organization
+                    partial_result = await db.execute(partial_query)
+                    contacts = partial_result.scalars().all()
+
+                if not contacts:
+                    return {"success": False, "error": f"No contacts found matching '{identifier}'"}
+
+                if len(contacts) > 1:
+                    # Multiple matches found - create clarification with manager
+                    matches_list = [
+                        {
+                            "id": c.id,
+                            "name": c.name,
+                            "email": c.email,
+                            "phone": c.phone,
+                            "organization": c.organization
+                        }
+                        for c in contacts
+                    ]
+
+                    # Store clarification for multi-turn resolution
+                    clarification_id = clarification_manager.create_clarification(
+                        user_id=user.id,
+                        clarification_type="multiple_contacts",
+                        matches=matches_list,
+                        original_action={
+                            "method": "PUT",
+                            "endpoint": "/contacts/update",
+                            "data": data,
+                            "identifier": identifier
+                        }
+                    )
+
+                    return {
+                        "success": False,
+                        "requires_clarification": True,
+                        "clarification_id": clarification_id,
+                        "clarification_type": "multiple_contacts",
+                        "matches": matches_list,
+                        "original_action": {
+                            "method": "PUT",
+                            "endpoint": "/contacts/update",
+                            "data": data,
+                            "identifier": identifier
+                        },
+                        "message": f"Found {len(contacts)} contacts matching '{identifier}'. Please specify which one you want to update.",
+                        "ai_context": f"I found {len(contacts)} contacts matching '{identifier}':\n" +
+                                    "\n".join([f"- {c.name} ({c.email if c.email else 'no email'})" for c in contacts]) +
+                                    "\n\nWhich contact did you want to update?"
                     }
-                    for contact in contacts
-                ]
 
-                # Store clarification for multi-turn resolution
-                clarification_id = clarification_manager.create_clarification(
-                    user_id=user.id,
-                    clarification_type="multiple_contacts",
-                    matches=matches_list,
-                    original_action={
-                        "method": "PUT",
-                        "endpoint": "/contacts/update",
-                        "data": data,
-                        "identifier": identifier
-                    }
-                )
-
-                return {
-                    "success": False,
-                    "requires_clarification": True,
-                    "clarification_id": clarification_id,
-                    "clarification_type": "multiple_contacts",
-                    "matches": matches_list,
-                    "original_action": {
-                        "method": "PUT",
-                        "endpoint": "/contacts/update",
-                        "data": data,
-                        "identifier": identifier
-                    },
-                    "message": f"Found {len(contacts)} contacts matching '{identifier}'. Please specify which one you want to update.",
-                    "ai_context": f"I found {len(contacts)} contacts matching '{identifier}':\n" +
-                                "\n".join([f"- {contact.name} ({contact.email if contact.email else 'no email'})" for contact in contacts]) +
-                                "\n\nWhich contact did you want to update?"
-                }
-
-            # Single match found - proceed with update
-            contact = contacts[0]
+                # Single match found - proceed with update
+                contact = contacts[0]
 
             # Store original values for logging
             original_data = {field: getattr(contact, field, None) for field in data.keys() if field != "identifier"}
@@ -2486,14 +2547,63 @@ async def send_chat_message(
                 "content": last_offer
             })
 
-        # PRE-PARSE CHECK: Intercept affirmative responses after email offers
-        # This prevents LLM from misinterpreting "yes" as extract_document_content
+        # PRE-PARSE CHECK 1: Intercept responses to pending entity update offers
+        # When AI offered "Would you like me to add email/phone?" after entity creation
         parsed_command = None
         message_lower = chat_data.message.lower().strip()
+
+        pending_offer = user_memory.get_pending_offer()
+        if pending_offer:
+            # Check if user is accepting the offer (affirmative or contains field data)
+            affirmative_indicators = ["yes", "sure", "ok", "okay", "yeah", "yep", "please",
+                                      "go ahead", "add", "do it", "update"]
+
+            has_affirmative = any(ind in message_lower for ind in affirmative_indicators)
+            extracted_fields = extract_fields_from_message(chat_data.message)
+
+            # Accept if: pure affirmative OR affirmative with data OR just data
+            if has_affirmative or extracted_fields:
+                if extracted_fields:
+                    # User provided field data - execute update with extracted fields
+                    entity_type = pending_offer["entity_type"]
+                    entity_type_singular = entity_type.rstrip("s") if entity_type.endswith("s") else entity_type
+
+                    parsed_command = {
+                        "intent": f"update_{entity_type_singular}",
+                        "entities": {
+                            "contact_name": pending_offer["entity_name"],
+                            **extracted_fields
+                        },
+                        "confidence": 0.95,
+                        "raw_text": chat_data.message,
+                        "_resolved_id": pending_offer["entity_id"]  # Pre-resolved ID
+                    }
+                    user_memory.clear_pending_offer()
+                    logger.info(
+                        "Pre-parse intercept: Entity update offer accepted with data",
+                        entity_type=entity_type,
+                        entity_id=pending_offer["entity_id"],
+                        entity_name=pending_offer["entity_name"],
+                        extracted_fields=list(extracted_fields.keys()),
+                        user_id=current_user.id
+                    )
+                elif message_lower.strip() in ["yes", "sure", "ok", "okay", "yeah", "yep", "please"]:
+                    # Pure affirmative without data - ask what to add
+                    # Don't intercept, let AI ask for the data
+                    logger.info(
+                        "Pre-parse intercept: Pure affirmative to offer, letting AI prompt for data",
+                        entity_name=pending_offer["entity_name"],
+                        user_id=current_user.id
+                    )
+                    # Keep the offer active for the next message
+                    pass
+
+        # PRE-PARSE CHECK 2: Intercept affirmative responses after email offers
+        # This prevents LLM from misinterpreting "yes" as extract_document_content
         affirmatives = ["yes", "sure", "ok", "okay", "yeah", "yep", "please", "do it",
                         "go ahead", "please do", "show me", "show it", "retrieve it"]
 
-        if message_lower in affirmatives and chat_data.conversation_history:
+        if parsed_command is None and message_lower in affirmatives and chat_data.conversation_history:
             # Check last AI messages for email offer
             for msg in reversed(chat_data.conversation_history[-5:]):
                 if msg.get("role") == "assistant":
@@ -2614,6 +2724,12 @@ async def send_chat_message(
                             )
             else:
                 api_action = llm_command_parser.generate_api_action(parsed_command)
+
+                # Re-inject special fields from parsed_command into api_action
+                # This is needed because generate_api_action() doesn't preserve fields like _resolved_id
+                if api_action and parsed_command.get("_resolved_id"):
+                    api_action["_resolved_id"] = parsed_command["_resolved_id"]
+                    logger.debug(f"Propagated _resolved_id={parsed_command['_resolved_id']} to api_action")
 
                 # If intent is get_latest_email, inject tracked email ID from per-user memory
                 if parsed_command.get("intent") == "get_latest_email" and api_action:
@@ -3127,6 +3243,45 @@ ABSOLUTELY FORBIDDEN:
         # Store AI offer for follow-up detection
         if "would you like" in ai_response["response"].lower() or "shall i" in ai_response["response"].lower():
             user_memory.set_last_offer(ai_response["response"])
+
+            # Track structured entity offers after entity creation
+            # This enables follow-up handling when AI offers to add more info
+            if execution_result and execution_result.get("success") and execution_result.get("action") == "created":
+                entity_type = execution_result.get("entity_type")
+                result_data = execution_result.get("result", {})
+
+                if entity_type and result_data.get("id"):
+                    # Check if AI is offering to add more info to this entity
+                    ai_response_lower = ai_response["response"].lower()
+                    add_info_patterns = [
+                        "would you like me to add",
+                        "shall i add",
+                        "want me to add",
+                        "add more info",
+                        "add their email",
+                        "add their phone",
+                        "add his email",
+                        "add her email",
+                        "add the email",
+                        "add additional",
+                        "more details"
+                    ]
+
+                    if any(pattern in ai_response_lower for pattern in add_info_patterns):
+                        user_memory.set_pending_entity_offer(
+                            offer_type="add_info",
+                            entity_type=entity_type,
+                            entity_id=result_data["id"],
+                            entity_name=result_data.get("name", "Unknown"),
+                            offered_fields=["email", "phone", "job_position", "organization"]
+                        )
+                        logger.info(
+                            "Tracked pending entity offer after creation",
+                            entity_type=entity_type,
+                            entity_id=result_data["id"],
+                            entity_name=result_data.get("name"),
+                            user_id=current_user.id
+                        )
 
         # CRITICAL FIX: If AI is offering to retrieve an email, update tracking
         # to match what AI is describing (not just what was in result_data[0])

@@ -37,20 +37,20 @@ MCP_TOOL_SCHEMAS = {
         "friendly_name": "email"
     },
     "outlook_send_email": {
-        "required": ["to", "subject", "body"],
-        "optional": ["cc", "bcc", "importance"],
+        "required": ["to_recipients", "subject", "body"],
+        "optional": ["cc_recipients", "bcc_recipients", "importance"],
         "defaults": {"importance": "normal"},
         "error_hints": {
-            "to": "Who should I send this email to?",
+            "to_recipients": "Who should I send this email to?",
             "subject": "What should the email subject be?",
             "body": "What would you like to say in the email?"
         }
     },
     "outlook_create_draft": {
-        "required": ["to", "subject", "body"],
-        "optional": ["cc", "bcc"],
+        "required": ["subject", "body"],
+        "optional": ["to_recipients", "cc_recipients", "bcc_recipients"],
         "error_hints": {
-            "to": "Who is this draft for?",
+            "to_recipients": "Who is this draft for?",
             "subject": "What should the subject line be?",
             "body": "What would you like the draft to say?"
         }
@@ -528,9 +528,9 @@ class MCPMicrosoft365ToolAdapter(BaseTool):
             "search_query": "query",
             "email_subject": "subject",
             "email_body": "body",
-            "email_to": "to",
-            "email_cc": "cc",
-            "email_bcc": "bcc",
+            "email_to": "to_recipients",  # MCP server expects to_recipients (array)
+            "email_cc": "cc_recipients",  # MCP server expects cc_recipients (array)
+            "email_bcc": "bcc_recipients",  # MCP server expects bcc_recipients (array)
             "meeting_subject": "subject",
             "meeting_start": "start_time",
             "meeting_end": "end_time",

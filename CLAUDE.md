@@ -179,15 +179,15 @@ POST   /api/integrations/connect - Connect external service
 - **Triggers**: Low confidence (<0.7), clarifications pending, long conversations (>20 msgs)
 - **SDK**: Requires anthropic>=0.49.0
 
-### Recent Fixes (Nov 2024)
+### Recent Fixes (Dec 2024)
 | Fix | Description | File |
 |-----|-------------|------|
-| "list them" follow-up | Added list/show/display/get/fetch to action words | `llm_command_parser.py` |
-| Partial name matching | Task creation uses `%name%` with clarification for multiple matches | `chat.py` |
-| Email follow-up tool | Pre-parse intercept for affirmatives after email offers | `chat.py` |
-| Contact update by name | Parser uses `contact_name` entity to find contact | `llm_command_parser.py` |
-| MS365 awareness | AI system prompt includes user's connected integrations | `ai_service.py` |
-| Extended thinking SDK | Upgraded to anthropic>=0.49.0 | `requirements.txt` |
+| Follow-up entity updates | Structured offer tracking for "add more info" after entity creation | `chat.py`, `conversation_memory.py` |
+| Pre-parse entity intercept | Intercepts affirmative + data responses to pending offers | `chat.py` |
+| Field extraction helper | Extracts email/phone from user messages | `chat.py` |
+| Pre-resolved ID updates | Contact updates use entity ID from offer tracking | `chat.py` |
+| Context-aware parsing | LLM parser receives recent entities for smarter intent detection | `llm_command_parser.py` |
+| Entity cards UI | Moved cards outside chat bubble for proper sizing | `assistant.html`, `modern.css` |
 
 ### Key Files
 | File | Purpose |
@@ -195,5 +195,98 @@ POST   /api/integrations/connect - Connect external service
 | `backend/app/api/v1/chat.py` | Main chat endpoint, action execution, entity tracking |
 | `backend/app/services/ai_service.py` | AI providers, system prompt, extended thinking |
 | `backend/app/services/llm_command_parser.py` | Intent/entity extraction from natural language |
-| `backend/app/services/conversation_memory.py` | Persistent memory with smart context pruning |
+| `backend/app/services/conversation_memory.py` | Persistent memory, entity tracking, pending offer tracking |
 | `backend/app/integrations/mcp_tool_adapter.py` | MCP tool schemas and validation |
+| `365mcp/` | Microsoft 365 MCP server (separate process) |
+
+### MCP Server (365mcp/)
+- **Location**: `/365mcp/` - separate Python process
+- **Run**: `python 365mcp/run_server.py`
+- **Tools**: `outlook_send_email`, `outlook_search_emails`, `outlook_get_email`, `outlook_get_calendar_events`, etc.
+- **Files**:
+  - `365mcp/src/tools/outlook.py` - Outlook/email operations via Microsoft Graph API
+  - `365mcp/src/tools/sharepoint.py` - SharePoint operations
+  - `365mcp/src/auth/oauth_handler.py` - MS365 OAuth token management
+  - `365mcp/src/config/settings.py` - MCP server configuration
+
+### Email Configuration
+**IMPORTANT**: Sending emails via MS365 uses **Microsoft Graph API**, NOT SMTP.
+- The SMTP settings in `.env` (SMTP_SERVER, SMTP_PORT, etc.) are for **local notifications only**
+- For MS365 email sending:
+  1. Configure MS365 OAuth in `.env`: `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID`
+  2. Run MCP server: `python 365mcp/run_server.py`
+  3. User must connect MS365 account in Settings → Integrations
+  4. OAuth scopes required: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`
+
+---
+
+## Railway Deployment (Dec 2024)
+
+### Architecture
+- **CRM Backend**: `backend/` - FastAPI app with PostgreSQL + Redis
+- **MCP Server**: Separate repo (`365mcp`) - Microsoft 365 integration server
+- **Communication**: Private networking via `mcp-server.railway.internal:8001`
+
+### Deployment Files
+
+| File | Purpose |
+|------|---------|
+| `backend/Dockerfile` | CRM container - runs migrations on startup |
+| `backend/railway.toml` | Railway config with healthcheck at `/health` |
+| `backend/.env.local.example` | Local dev environment template |
+
+### Key Configuration Changes
+
+**`backend/app/core/config.py`**:
+- Added `@field_validator` to convert `postgresql://` → `postgresql+asyncpg://` (Railway compatibility)
+- Multi-env support: `.env` for production, `.env.local` for local (overrides)
+
+**`backend/app/main.py`**:
+- TrustedHostMiddleware allows `*.railway.app`, `*.up.railway.app`
+
+### Environment Variables (Railway)
+
+**CRM Backend Service:**
+```
+DATABASE_URL=<from Railway PostgreSQL addon>
+REDIS_URL=<from Railway Redis addon>
+SECRET_KEY=<generate with: python -c "import secrets; print(secrets.token_hex(32))">
+MCP_MICROSOFT365_URL=http://mcp-server.railway.internal:8001
+FRONTEND_URL=https://your-app.up.railway.app
+BACKEND_URL=https://your-app.up.railway.app
+ANTHROPIC_API_KEY=<your key>
+MICROSOFT_CLIENT_ID=<Azure app client ID>
+MICROSOFT_CLIENT_SECRET=<Azure app secret>
+MICROSOFT_TENANT_ID=<Azure tenant ID>
+MICROSOFT_REDIRECT_URI=https://your-app.up.railway.app/api/v1/integrations/ms365/callback
+```
+
+**MCP Server Service:**
+```
+PORT=8001
+MICROSOFT_CLIENT_ID=<same as backend>
+MICROSOFT_CLIENT_SECRET=<same as backend>
+MICROSOFT_TENANT_ID=<same as backend>
+MICROSOFT_REDIRECT_URI=https://your-crm.up.railway.app/api/v1/integrations/ms365/callback
+FRONTEND_URL=https://your-crm.up.railway.app
+```
+
+### Local Development
+1. Copy `.env.local.example` to `.env.local`
+2. `.env.local` uses localhost URLs and overrides `.env`
+3. Run MCP server: `python 365mcp/http_bridge.py`
+4. Run CRM: `uvicorn app.main:app --reload`
+
+### Common Deployment Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| Healthcheck fails | DATABASE_URL format mismatch | `field_validator` auto-converts `postgresql://` to `postgresql+asyncpg://` |
+| 400 Bad Request on health | TrustedHostMiddleware blocking | Added `*.railway.app` to allowed_hosts |
+| SSL error to MCP | Wrong protocol | Use `http://` not `https://` for internal networking |
+| OAuth redirect mismatch | Localhost URI in production | Set `MICROSOFT_REDIRECT_URI` to production URL on MCP server |
+
+### Azure App Registration
+Redirect URIs to register:
+- `http://localhost:8000/api/v1/integrations/ms365/callback` (local)
+- `https://your-app.up.railway.app/api/v1/integrations/ms365/callback` (production)

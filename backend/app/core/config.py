@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     max_file_size: int = 10 * 1024 * 1024  # 10MB
 
     class Config:
-        env_file = ".env"
+        env_file = (".env", ".env.local")  # .env.local overrides .env for local dev
         env_file_encoding = "utf-8"
 
 

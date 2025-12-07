@@ -14,7 +14,8 @@
       "Bash(python -m alembic:*)",
       "Bash(python -c:*)",
       "Bash(python -m py_compile:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(git ls-tree:*)"
     ],
     "deny": [],
     "ask": []

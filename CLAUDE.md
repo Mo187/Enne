@@ -180,7 +180,6 @@ POST   /api/integrations/connect - Connect external service
 - **SDK**: Requires anthropic>=0.49.0
 
 ### Recent Fixes (Dec 2024)
-### Recent Fixes (Dec 2024)
 | Fix | Description | File |
 |-----|-------------|------|
 | Follow-up entity updates | Structured offer tracking for "add more info" after entity creation | `chat.py`, `conversation_memory.py` |
@@ -189,12 +188,8 @@ POST   /api/integrations/connect - Connect external service
 | Pre-resolved ID updates | Contact updates use entity ID from offer tracking | `chat.py` |
 | Context-aware parsing | LLM parser receives recent entities for smarter intent detection | `llm_command_parser.py` |
 | Entity cards UI | Moved cards outside chat bubble for proper sizing | `assistant.html`, `modern.css` |
-| Follow-up entity updates | Structured offer tracking for "add more info" after entity creation | `chat.py`, `conversation_memory.py` |
-| Pre-parse entity intercept | Intercepts affirmative + data responses to pending offers | `chat.py` |
-| Field extraction helper | Extracts email/phone from user messages | `chat.py` |
-| Pre-resolved ID updates | Contact updates use entity ID from offer tracking | `chat.py` |
-| Context-aware parsing | LLM parser receives recent entities for smarter intent detection | `llm_command_parser.py` |
-| Entity cards UI | Moved cards outside chat bubble for proper sizing | `assistant.html`, `modern.css` |
+| Document content extraction | Added `onedrive_get_document_content` and `sharepoint_get_document_content` tools | `365mcp/src/tools/sharepoint.py` |
+| Teams meeting organizer | Fixed organizer recognition, auto-filter from attendees | `365mcp/src/tools/sharepoint.py` |
 
 ### Key Files
 | File | Purpose |
@@ -203,28 +198,35 @@ POST   /api/integrations/connect - Connect external service
 | `backend/app/services/ai_service.py` | AI providers, system prompt, extended thinking |
 | `backend/app/services/llm_command_parser.py` | Intent/entity extraction from natural language |
 | `backend/app/services/conversation_memory.py` | Persistent memory, entity tracking, pending offer tracking |
-| `backend/app/services/conversation_memory.py` | Persistent memory, entity tracking, pending offer tracking |
 | `backend/app/integrations/mcp_tool_adapter.py` | MCP tool schemas and validation |
 | `365mcp/` | Microsoft 365 MCP server (separate process) |
 
 ### MCP Server (365mcp/)
 - **Location**: `/365mcp/` - separate Python process
-- **Run**: `python 365mcp/run_server.py`
-- **Tools**: `outlook_send_email`, `outlook_search_emails`, `outlook_get_email`, `outlook_get_calendar_events`, etc.
-- **Files**:
-  - `365mcp/src/tools/outlook.py` - Outlook/email operations via Microsoft Graph API
-  - `365mcp/src/tools/sharepoint.py` - SharePoint operations
-  - `365mcp/src/auth/oauth_handler.py` - MS365 OAuth token management
-  - `365mcp/src/config/settings.py` - MCP server configuration
+- **Documentation**: See [`365mcp/DEVELOPER_GUIDE.md`](365mcp/DEVELOPER_GUIDE.md) for comprehensive docs
+- **Run**: `python 365mcp/run_server.py` (stdio) or `python 365mcp/http_bridge.py` (HTTP)
+- **Tools (25 total)**:
+  - **Outlook (6)**: `outlook_search_emails`, `outlook_get_email`, `outlook_send_email`, `outlook_create_draft`, `outlook_list_folders`, `outlook_get_calendar_events`
+  - **SharePoint (8)**: `sharepoint_list_sites`, `sharepoint_list_documents`, `sharepoint_get_document`, `sharepoint_search_documents`, `sharepoint_upload_document`, `sharepoint_create_folder`, `sharepoint_share_document`, `sharepoint_get_document_content`
+  - **OneDrive (3)**: `onedrive_list_files`, `onedrive_get_document_content`, `onedrive_upload_document`
+  - **Teams (6)**: `teams_list_teams`, `teams_list_files`, `teams_create_meeting`, `teams_get_meeting_attendees`, `teams_add_meeting_attendees`, `teams_get_meeting_notes`
+  - **Auth (2)**: `authenticate`, `auth_callback`
+- **Key Files**:
+  - `365mcp/src/server.py` - Main MCP server (~290 lines)
+  - `365mcp/src/tools/outlook.py` - Outlook/email operations (~918 lines)
+  - `365mcp/src/tools/sharepoint.py` - SharePoint/OneDrive/Teams (~2794 lines)
+  - `365mcp/src/auth/oauth_handler.py` - OAuth2 token management
+  - `365mcp/src/security.py` - Rate limiting, input validation
+  - `365mcp/http_bridge.py` - FastAPI HTTP wrapper for testing
 
 ### Email Configuration
 **IMPORTANT**: Sending emails via MS365 uses **Microsoft Graph API**, NOT SMTP.
 - The SMTP settings in `.env` (SMTP_SERVER, SMTP_PORT, etc.) are for **local notifications only**
 - For MS365 email sending:
   1. Configure MS365 OAuth in `.env`: `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID`
-  2. Run MCP server: `python 365mcp/run_server.py`
+  2. Run MCP server: `python 365mcp/http_bridge.py`
   3. User must connect MS365 account in Settings → Integrations
-  4. OAuth scopes required: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`
+  4. OAuth scopes required: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, + 12 more (see [`365mcp/DEVELOPER_GUIDE.md`](365mcp/DEVELOPER_GUIDE.md#oauth2-scopes))
 
 ---
 
@@ -290,23 +292,3 @@ FRONTEND_URL=https://your-crm.up.railway.app
 Redirect URIs to register:
 - `http://localhost:8000/api/v1/integrations/ms365/callback` (local)
 - `https://your-app.up.railway.app/api/v1/integrations/ms365/callback` (production)
-| `365mcp/` | Microsoft 365 MCP server (separate process) |
-
-### MCP Server (365mcp/)
-- **Location**: `/365mcp/` - separate Python process
-- **Run**: `python 365mcp/run_server.py`
-- **Tools**: `outlook_send_email`, `outlook_search_emails`, `outlook_get_email`, `outlook_get_calendar_events`, etc.
-- **Files**:
-  - `365mcp/src/tools/outlook.py` - Outlook/email operations via Microsoft Graph API
-  - `365mcp/src/tools/sharepoint.py` - SharePoint operations
-  - `365mcp/src/auth/oauth_handler.py` - MS365 OAuth token management
-  - `365mcp/src/config/settings.py` - MCP server configuration
-
-### Email Configuration
-**IMPORTANT**: Sending emails via MS365 uses **Microsoft Graph API**, NOT SMTP.
-- The SMTP settings in `.env` (SMTP_SERVER, SMTP_PORT, etc.) are for **local notifications only**
-- For MS365 email sending:
-  1. Configure MS365 OAuth in `.env`: `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_TENANT_ID`
-  2. Run MCP server: `python 365mcp/run_server.py`
-  3. User must connect MS365 account in Settings → Integrations
-  4. OAuth scopes required: `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`

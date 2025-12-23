@@ -1,5 +1,6 @@
+
 *.md
-365mcp/
+365mcp 
 
 # Python
 __pycache__/
